@@ -69,6 +69,11 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.triggerSwitcher()
             }
         }
+        DistributedNotificationCenter.default().addObserver(forName: NSNotification.Name("com.custom.windowswitcher.dismissSwitcher"), object: nil, queue: .main) { _ in
+            Task { @MainActor in
+                SwitcherState.shared.dismiss()
+            }
+        }
     }
 
     private func setupStatusItem() {
@@ -170,8 +175,8 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
         let gridW = CGFloat(perRow) * maxCardW + CGFloat(max(0, perRow - 1)) * 12 + 36
         let gridH = CGFloat(rows) * cardH + CGFloat(max(0, rows - 1)) * 12 + 36 + (SwitcherState.shared.searchText.isEmpty ? 0 : 44)
 
-        // Outer padding for drop shadows (28px each side)
-        let outerPadding: CGFloat = 28 * 2
+        // Outer padding for drop shadows (36px each side)
+        let outerPadding: CGFloat = 36 * 2
         let fitting = panel.contentView?.fittingSize ?? NSSize.zero
         let targetW = max(fitting.width, gridW + outerPadding)
         let targetH = max(fitting.height, gridH + outerPadding)

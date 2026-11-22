@@ -11,7 +11,7 @@ public struct ClearLiquidGlassBase: NSViewRepresentable {
 
     public func makeNSView(context: Context) -> NSVisualEffectView {
         let view = NSVisualEffectView()
-        view.material = .fullScreenUI
+        view.material = .hudWindow
         view.blendingMode = .behindWindow
         view.state = .active
         view.wantsLayer = true
@@ -22,7 +22,7 @@ public struct ClearLiquidGlassBase: NSViewRepresentable {
     }
 
     public func updateNSView(_ nsView: NSVisualEffectView, context: Context) {
-        nsView.material = .fullScreenUI
+        nsView.material = .hudWindow
         nsView.blendingMode = .behindWindow
         nsView.state = .active
         nsView.layer?.cornerRadius = cornerRadius
@@ -58,7 +58,7 @@ public struct SwitcherOverlayView: View {
 
     public var body: some View {
         hudContent
-            .padding(28)
+            .padding(36)
     }
 
     private var hudContent: some View {
@@ -149,91 +149,84 @@ public struct SwitcherOverlayView: View {
         }
         .padding(18)
         .background(
-            ZStack {
-                let r = CGFloat(settings.hudCornerRadius)
-
-                // Layer 1: True optical see-through liquid glass base (clear vibrancy)
-                ClearLiquidGlassBase(cornerRadius: r)
-
-                // Layer 2: Clean, transparent optical glass tint
-                RoundedRectangle(cornerRadius: r, style: .continuous)
-                    .fill(Color(white: 0.10).opacity(0.24))
-
-                // Layer 3: 10 o'clock Directional Specular Sheen (Shiny & Reflective)
-                RoundedRectangle(cornerRadius: r, style: .continuous)
-                    .fill(
-                        LinearGradient(
-                            stops: [
-                                .init(color: Color.white.opacity(0.40), location: 0.0),
-                                .init(color: Color.white.opacity(0.14), location: 0.22),
-                                .init(color: Color.clear, location: 0.58)
-                            ],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-
-                // Layer 4: Upper-crest Specular Glare (Wet Glass Luster)
-                VStack {
-                    RoundedRectangle(cornerRadius: r, style: .continuous)
-                        .fill(
-                            LinearGradient(
-                                colors: [Color.white.opacity(0.45), Color.clear],
-                                startPoint: .top,
-                                endPoint: .bottom
-                            )
-                        )
-                        .frame(height: 28)
-                        .mask(
-                            RoundedRectangle(cornerRadius: r, style: .continuous)
-                        )
-                    Spacer()
-                }
-
-                // Layer 5: Prismatic Chromatic Dispersion Edge (Refraction caustics)
-                RoundedRectangle(cornerRadius: r, style: .continuous)
-                    .stroke(
-                        AngularGradient(
-                            gradient: Gradient(colors: [
-                                Color.white.opacity(0.95),                                 // 10 o'clock brilliant white
-                                Color(red: 0.45, green: 0.85, blue: 1.0, opacity: 0.65), // Cyan dispersion
-                                Color.white.opacity(0.35),
-                                Color(red: 0.95, green: 0.45, blue: 0.85, opacity: 0.40), // Magenta dispersion
-                                Color.black.opacity(0.45),                                 // 4 o'clock refraction shadow
-                                Color(red: 0.5, green: 0.75, blue: 1.0, opacity: 0.35),   // Soft cyan rim
-                                Color.white.opacity(0.95)                                  // Back to top-left
-                            ]),
-                            center: .center
-                        ),
-                        lineWidth: CGFloat(settings.borderWidth)
-                    )
-
-                // Layer 6: Inner Optical Bevel (Double-bevel physical glass thickness)
-                RoundedRectangle(cornerRadius: max(0, r - 2), style: .continuous)
-                    .stroke(
-                        LinearGradient(
-                            colors: [Color.white.opacity(0.35), Color.white.opacity(0.06)],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        ),
-                        lineWidth: 1.0
-                    )
-                    .padding(1.5)
-            }
-            // Dual Apple HIG elevation drop shadows (contact + ambient depth):
-            .shadow(
-                color: Color.black.opacity(ambientShadowOpacity),
-                radius: ambientShadowRadius,
-                x: 0,
-                y: ambientShadowY
-            )
-            .shadow(
-                color: Color.black.opacity(directionalShadowOpacity),
-                radius: directionalShadowRadius,
-                x: 0,
-                y: directionalShadowY
-            )
+            liquidGlassBackground
         )
+    }
+
+    // MARK: - Authentic Apple Liquid Glass Background (HIG Compliant)
+    private var liquidGlassBackground: some View {
+        let r = CGFloat(settings.hudCornerRadius)
+
+        return ZStack {
+            // 1. Pure Vector Rounded Rectangle Shadow Base
+            // Casting the shadow on a native SwiftUI vector shape guarantees that Metal / CoreGraphics
+            // draws an exact Gaussian blur of the rounded squircle geometry with ZERO rectangular bounding box artifacts!
+            RoundedRectangle(cornerRadius: r, style: .continuous)
+                .fill(Color(white: 0.14).opacity(0.92))
+                .shadow(
+                    color: Color.black.opacity(directionalShadowOpacity),
+                    radius: directionalShadowRadius,
+                    x: 0,
+                    y: directionalShadowY
+                )
+                .shadow(
+                    color: Color.black.opacity(ambientShadowOpacity),
+                    radius: ambientShadowRadius,
+                    x: 0,
+                    y: ambientShadowY
+                )
+
+            // 2. Native macOS Liquid Glass Optical Material (Behind-Window Vibrancy)
+            ClearLiquidGlassBase(cornerRadius: r)
+                .clipShape(RoundedRectangle(cornerRadius: r, style: .continuous))
+
+            // 3. Apple Neutral Optical Glass Tint
+            RoundedRectangle(cornerRadius: r, style: .continuous)
+                .fill(Color(white: 0.08).opacity(0.20))
+
+            // 4. Subtle Top Light Luminance (Apple HIG Natural Downward Sheen - NO WHITE CUTS)
+            RoundedRectangle(cornerRadius: r, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            Color.white.opacity(0.12),
+                            Color.white.opacity(0.02),
+                            Color.clear
+                        ],
+                        startPoint: .top,
+                        endPoint: .center
+                    )
+                )
+
+            // 5. Authentic Apple Liquid Glass Specular Hairline Stroke
+            // Clean, pristine neutral light catch from top to bottom - NO CYANS, NO MAGENTAS, NO BLACKS
+            RoundedRectangle(cornerRadius: r, style: .continuous)
+                .stroke(
+                    LinearGradient(
+                        stops: [
+                            .init(color: Color.white.opacity(0.42), location: 0.0),
+                            .init(color: Color.white.opacity(0.16), location: 0.40),
+                            .init(color: Color.white.opacity(0.06), location: 0.75),
+                            .init(color: Color.white.opacity(0.12), location: 1.0)
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    ),
+                    lineWidth: max(1.0, CGFloat(settings.borderWidth))
+                )
+
+            // 6. Delicate Inner Bevel Lip (Apple physical glass thickness)
+            RoundedRectangle(cornerRadius: max(0, r - 1.5), style: .continuous)
+                .stroke(
+                    LinearGradient(
+                        colors: [Color.white.opacity(0.18), Color.white.opacity(0.02)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    ),
+                    lineWidth: 0.75
+                )
+                .padding(1)
+        }
     }
 
     private var ambientShadowOpacity: Double {
