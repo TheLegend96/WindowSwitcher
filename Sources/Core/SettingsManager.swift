@@ -14,7 +14,6 @@ public enum CardSize: String, CaseIterable, Identifiable {
     case small = "Small"
     case medium = "Medium"
     case large = "Large"
-    case auto = "Auto"
 
     public var id: String { rawValue }
 
@@ -23,7 +22,6 @@ public enum CardSize: String, CaseIterable, Identifiable {
         case .small: return 110
         case .medium: return 148
         case .large: return 188
-        case .auto: return 148
         }
     }
 
@@ -32,7 +30,6 @@ public enum CardSize: String, CaseIterable, Identifiable {
         case .small: return 75
         case .medium: return 110
         case .large: return 145
-        case .auto: return 110
         }
     }
 
@@ -41,7 +38,6 @@ public enum CardSize: String, CaseIterable, Identifiable {
         case .small: return 48
         case .medium: return 68
         case .large: return 92
-        case .auto: return 68
         }
     }
 }

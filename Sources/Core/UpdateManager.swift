@@ -47,9 +47,9 @@ public struct GitHubAsset: Codable {
 public class UpdateManager: NSObject, ObservableObject, URLSessionDownloadDelegate {
     public static let shared = UpdateManager()
 
-    // Configurable repo slug, defaulting to project repo
-    @Published public var repoOwner: String = "pruthvirajmane"
-    @Published public var repoName: String = "mac-window-switcher"
+    // Configurable repo slug
+    @Published public var repoOwner: String = "TheLegend96"
+    @Published public var repoName: String = "WindowSwitcher"
 
     @Published public var status: UpdateStatus = .idle
     @Published public var downloadProgress: Double = 0.0
@@ -90,6 +90,9 @@ public class UpdateManager: NSObject, ObservableObject, URLSessionDownloadDelega
         Task {
             do {
                 let (data, response) = try await URLSession.shared.data(for: request)
+                // Brief pause so the user perceives a genuine check rather than a 0ms glitch
+                try? await Task.sleep(nanoseconds: 500_000_000)
+
                 guard let httpResponse = response as? HTTPURLResponse else {
                     throw NSError(domain: "UpdateManager", code: 1, userInfo: [NSLocalizedDescriptionKey: "Invalid network response."])
                 }
