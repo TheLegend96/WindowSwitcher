@@ -3,14 +3,20 @@
 build/
 *.dmg
 temp.dmg
+test_*.swift
 test_engine
+
+# Agent tools & temporary skills
+.agents/
+skills-lock.json
+scripts/
 
 # macOS system files
 .DS_Store
 *.swp
 *~
 
-# Logs
+# Logs & temp files
 /tmp/WindowSwitcher.log
 *.log
 

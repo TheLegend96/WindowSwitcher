@@ -58,7 +58,10 @@ public struct SwitcherOverlayView: View {
 
     public var body: some View {
         hudContent
-            .padding(36)
+            .padding(.horizontal, 90)
+            .padding(.top, 70)
+            .padding(.bottom, 110)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var hudContent: some View {
@@ -159,21 +162,26 @@ public struct SwitcherOverlayView: View {
 
         return ZStack {
             // 1. Pure Vector Rounded Rectangle Shadow Base
-            // Casting the shadow on a native SwiftUI vector shape guarantees that Metal / CoreGraphics
-            // draws an exact Gaussian blur of the rounded squircle geometry with ZERO rectangular bounding box artifacts!
+            // 3-Tier Apple HIG Depth Stack for authentic floating liquid glass depth
             RoundedRectangle(cornerRadius: r, style: .continuous)
                 .fill(Color(white: 0.14).opacity(0.92))
                 .shadow(
-                    color: Color.black.opacity(directionalShadowOpacity),
-                    radius: directionalShadowRadius,
+                    color: Color.black.opacity(0.12),
+                    radius: 2,
                     x: 0,
-                    y: directionalShadowY
+                    y: 1
                 )
                 .shadow(
                     color: Color.black.opacity(ambientShadowOpacity),
                     radius: ambientShadowRadius,
                     x: 0,
                     y: ambientShadowY
+                )
+                .shadow(
+                    color: Color.black.opacity(directionalShadowOpacity),
+                    radius: directionalShadowRadius,
+                    x: 0,
+                    y: directionalShadowY
                 )
 
             // 2. Native macOS Liquid Glass Optical Material (Behind-Window Vibrancy)

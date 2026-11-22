@@ -175,11 +175,12 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
         let gridW = CGFloat(perRow) * maxCardW + CGFloat(max(0, perRow - 1)) * 12 + 36
         let gridH = CGFloat(rows) * cardH + CGFloat(max(0, rows - 1)) * 12 + 36 + (SwitcherState.shared.searchText.isEmpty ? 0 : 44)
 
-        // Outer padding for drop shadows (36px each side)
-        let outerPadding: CGFloat = 36 * 2
+        // Outer padding for drop shadows (generous margins so shadow decays completely to zero with zero clipping)
+        let outerPaddingW: CGFloat = 90 * 2
+        let outerPaddingH: CGFloat = 70 + 110
         let fitting = panel.contentView?.fittingSize ?? NSSize.zero
-        let targetW = max(fitting.width, gridW + outerPadding)
-        let targetH = max(fitting.height, gridH + outerPadding)
+        let targetW = max(fitting.width, gridW + outerPaddingW)
+        let targetH = max(fitting.height, gridH + outerPaddingH)
 
         let totalW = min(targetW, screenRect.width - 40)
         let totalH = min(targetH, screenRect.height - 40)
