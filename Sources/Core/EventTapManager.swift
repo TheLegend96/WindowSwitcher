@@ -16,6 +16,11 @@ public class EventTapManager {
     private var activeModifier: ModifierType = .none
     public var isSwitcherActive: Bool = false
 
+    private var currentTrigger: ShortcutTrigger {
+        let raw = UserDefaults.standard.string(forKey: "primaryShortcut") ?? ShortcutTrigger.commandTab.rawValue
+        return ShortcutTrigger(rawValue: raw) ?? .commandTab
+    }
+
     public var isListening: Bool {
         return eventTap != nil || globalMonitor != nil
     }
@@ -102,20 +107,26 @@ public class EventTapManager {
     private func handleGlobalNSEvent(_ event: NSEvent) {
         let isCmdHeld = event.modifierFlags.contains(.command)
         let isAltHeld = event.modifierFlags.contains(.option)
+        let primary = currentTrigger
 
         if !isSwitcherActive {
-            if event.type == .keyDown && event.keyCode == 48 {
-                if isCmdHeld {
-                    activeModifier = .command
-                    isSwitcherActive = true
-                    DispatchQueue.main.async {
-                        SwitcherState.shared.show()
+            if event.type == .keyDown && event.keyCode == 48 { // Tab
+                switch primary {
+                case .commandTab:
+                    if isCmdHeld && !isAltHeld {
+                        activeModifier = .command
+                        isSwitcherActive = true
+                        DispatchQueue.main.async {
+                            SwitcherState.shared.show()
+                        }
                     }
-                } else if isAltHeld {
-                    activeModifier = .option
-                    isSwitcherActive = true
-                    DispatchQueue.main.async {
-                        SwitcherState.shared.show()
+                case .optionTab:
+                    if isAltHeld && !isCmdHeld {
+                        activeModifier = .option
+                        isSwitcherActive = true
+                        DispatchQueue.main.async {
+                            SwitcherState.shared.show()
+                        }
                     }
                 }
             }
@@ -256,22 +267,28 @@ public class EventTapManager {
                 }
             }
         } else {
-            // When Switcher is NOT visible:
-            if type == .keyDown && keyCode == 48 {
-                if isCmdHeld {
-                    activeModifier = .command
-                    isSwitcherActive = true
-                    DispatchQueue.main.async {
-                        SwitcherState.shared.show()
+            // When Switcher is NOT visible: ONLY trigger the one shortcut selected by the user
+            if type == .keyDown && keyCode == 48 { // Tab
+                let primary = currentTrigger
+                switch primary {
+                case .commandTab:
+                    if isCmdHeld && !isAltHeld {
+                        activeModifier = .command
+                        isSwitcherActive = true
+                        DispatchQueue.main.async {
+                            SwitcherState.shared.show()
+                        }
+                        return nil // Intercept Command+Tab so macOS default switcher does not show
                     }
-                    return nil
-                } else if isAltHeld {
-                    activeModifier = .option
-                    isSwitcherActive = true
-                    DispatchQueue.main.async {
-                        SwitcherState.shared.show()
+                case .optionTab:
+                    if isAltHeld && !isCmdHeld {
+                        activeModifier = .option
+                        isSwitcherActive = true
+                        DispatchQueue.main.async {
+                            SwitcherState.shared.show()
+                        }
+                        return nil // Intercept Option+Tab
                     }
-                    return nil
                 }
             }
         }

@@ -514,35 +514,74 @@ public struct SettingsView: View {
                     .foregroundColor(.secondary)
             }
 
-            // Primary Activation Shortcut
+            // Primary Activation Shortcut (Strictly Mutually Exclusive)
             VStack(alignment: .leading, spacing: 10) {
                 Text("Activation Shortcut")
                     .font(.system(size: 13, weight: .semibold))
 
-                HStack {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Trigger shortcut")
-                            .font(.system(size: 13, weight: .medium))
-                        Text("Press and hold the modifier, then press Tab to cycle.")
-                            .font(.system(size: 11))
-                            .foregroundColor(.secondary)
-                    }
+                Text("Choose which shortcut triggers Window Switcher. Only the selected shortcut will be active.")
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
 
-                    Spacer()
+                HStack(spacing: 12) {
+                    // Option 1: Command + Tab
+                    Button(action: {
+                        settings.primaryShortcut = .commandTab
+                    }) {
+                        HStack(spacing: 10) {
+                            Image(systemName: settings.primaryShortcut == .commandTab ? "largecircle.fill.circle" : "circle")
+                                .font(.system(size: 14))
+                                .foregroundColor(settings.primaryShortcut == .commandTab ? settings.accentColor : .secondary)
 
-                    Picker("", selection: $settings.primaryShortcut) {
-                        Text("⌥ Option + Tab (Windows style)").tag(ShortcutTrigger.optionTab)
-                        Text("⌘ Command + Tab (macOS style)").tag(ShortcutTrigger.commandTab)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("⌘ Command + Tab")
+                                    .font(.system(size: 13, weight: .semibold))
+                                    .foregroundColor(.primary)
+                                Text("Replaces macOS app switcher with individual window switching")
+                                    .font(.system(size: 11))
+                                    .foregroundColor(.secondary)
+                            }
+                            Spacer()
+                        }
+                        .padding(12)
+                        .background(settings.primaryShortcut == .commandTab ? settings.accentColor.opacity(0.08) : Color.primary.opacity(0.02))
+                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                .stroke(settings.primaryShortcut == .commandTab ? settings.accentColor.opacity(0.4) : Color.primary.opacity(0.08), lineWidth: 1)
+                        )
                     }
-                    .frame(width: 250)
+                    .buttonStyle(.plain)
+
+                    // Option 2: Option + Tab
+                    Button(action: {
+                        settings.primaryShortcut = .optionTab
+                    }) {
+                        HStack(spacing: 10) {
+                            Image(systemName: settings.primaryShortcut == .optionTab ? "largecircle.fill.circle" : "circle")
+                                .font(.system(size: 14))
+                                .foregroundColor(settings.primaryShortcut == .optionTab ? settings.accentColor : .secondary)
+
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("⌥ Option + Tab")
+                                    .font(.system(size: 13, weight: .semibold))
+                                    .foregroundColor(.primary)
+                                Text("Classic Windows Alt-Tab (leaves macOS ⌘-Tab untouched)")
+                                    .font(.system(size: 11))
+                                    .foregroundColor(.secondary)
+                            }
+                            Spacer()
+                        }
+                        .padding(12)
+                        .background(settings.primaryShortcut == .optionTab ? settings.accentColor.opacity(0.08) : Color.primary.opacity(0.02))
+                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                .stroke(settings.primaryShortcut == .optionTab ? settings.accentColor.opacity(0.4) : Color.primary.opacity(0.08), lineWidth: 1)
+                        )
+                    }
+                    .buttonStyle(.plain)
                 }
-                .padding(14)
-                .background(Color.primary.opacity(0.03))
-                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .stroke(Color.primary.opacity(0.08), lineWidth: 1)
-                )
             }
 
             Divider()
