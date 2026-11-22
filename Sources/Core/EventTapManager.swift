@@ -125,7 +125,7 @@ public class EventTapManager {
                 switch activeModifier {
                 case .command: released = !isCmdHeld
                 case .option:  released = !isAltHeld
-                case .none:    released = !isCmdHeld && !isAltHeld
+                case .none:    released = false
                 }
                 if released {
                     activeModifier = .none
@@ -159,7 +159,7 @@ public class EventTapManager {
                 switch activeModifier {
                 case .command: released = !isCmdHeld
                 case .option:  released = !isAltHeld
-                case .none:    released = !isCmdHeld && !isAltHeld
+                case .none:    released = false
                 }
 
                 if released {

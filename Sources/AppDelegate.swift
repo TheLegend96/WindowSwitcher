@@ -51,6 +51,11 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.openSettings()
             }
         }
+        DistributedNotificationCenter.default().addObserver(forName: NSNotification.Name("com.custom.windowswitcher.openOnboarding"), object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor in
+                self?.openOnboarding()
+            }
+        }
         DistributedNotificationCenter.default().addObserver(forName: NSNotification.Name("com.custom.windowswitcher.switchTab"), object: nil, queue: .main) { notif in
             let tabName = notif.userInfo?["tab"] as? String ?? (notif.object as? String ?? "")
             Task { @MainActor in
