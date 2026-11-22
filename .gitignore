@@ -1,0 +1,18 @@
+# Build artifacts
+.build/
+build/
+*.dmg
+temp.dmg
+test_engine
+
+# macOS system files
+.DS_Store
+*.swp
+*~
+
+# Logs
+/tmp/WindowSwitcher.log
+*.log
+
+# User local data
+.user_uploaded/
