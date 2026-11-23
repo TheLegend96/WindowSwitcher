@@ -223,13 +223,15 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
     @objc public func openOnboarding() {
         if onboardingWindow == nil {
             let window = NSWindow(
-                contentRect: NSRect(x: 0, y: 0, width: 550, height: 490),
-                styleMask: [.titled, .closable, .miniaturizable],
+                contentRect: NSRect(x: 0, y: 0, width: 520, height: 560),
+                styleMask: [.titled, .closable, .fullSizeContentView],
                 backing: .buffered,
                 defer: false
             )
             window.center()
             window.title = "Welcome to Window Switcher"
+            window.titlebarAppearsTransparent = true
+            window.titleVisibility = .hidden
             window.isReleasedWhenClosed = false
             window.contentView = NSHostingView(rootView: OnboardingView(onComplete: { [weak self] in
                 self?.onboardingWindow?.close()

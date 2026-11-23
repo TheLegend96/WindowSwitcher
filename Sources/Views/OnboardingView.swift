@@ -16,87 +16,74 @@ public struct OnboardingView: View {
 
     public var body: some View {
         VStack(spacing: 0) {
-            // MARK: - Branded Hero Header
+            // MARK: - Header Hero with Cobalt Azure App Icon
             VStack(spacing: 12) {
                 AppBrandingIcon(size: 64, cornerRadius: 15)
-                    .padding(.top, 24)
+                    .padding(.top, 36)
 
-                VStack(spacing: 4) {
+                VStack(spacing: 5) {
                     Text("Welcome to Window Switcher")
                         .font(.system(size: 21, weight: .bold))
 
                     Text("Switch between individual windows on macOS with live 60 FPS previews and fluid keyboard control.")
-                        .font(.system(size: 12.5))
+                        .font(.system(size: 13))
                         .foregroundColor(.secondary)
                         .multilineTextAlignment(.center)
-                        .padding(.horizontal, 20)
+                        .lineLimit(nil)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.horizontal, 24)
                 }
             }
-            .padding(.bottom, 18)
+            .padding(.bottom, 20)
 
             Divider()
 
-            // MARK: - Setup & Permissions Checklist
-            VStack(spacing: 12) {
-                HStack {
-                    Text("Setup Permissions")
-                        .font(.system(size: 13, weight: .semibold))
-                    Spacer()
-                    Text("Required by macOS to switch & preview windows")
-                        .font(.system(size: 11))
-                        .foregroundColor(.secondary)
+            // MARK: - Inset Grouped Permissions Checklist (Apple HIG System Settings Style)
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Required Permissions")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(.secondary)
+                    .padding(.leading, 4)
+
+                VStack(spacing: 0) {
+                    // Row 1: Accessibility
+                    permissionRow(
+                        icon: "keyboard",
+                        title: "Accessibility",
+                        subtitle: "Allows shortcut detection and window switching.",
+                        isGranted: permissions.hasAccessibility,
+                        action: { permissions.requestAccessibility() }
+                    )
+
+                    Divider()
+                        .padding(.leading, 52)
+
+                    // Row 2: Screen Recording
+                    permissionRow(
+                        icon: "macwindow.on.rectangle",
+                        title: "Screen Recording",
+                        subtitle: "Streams 60 FPS live previews. 100% private and on-device.",
+                        isGranted: permissions.hasScreenRecording,
+                        action: { permissions.requestScreenRecording() }
+                    )
                 }
-
-                // Step 1: Accessibility
-                permissionStepCard(
-                    stepNumber: 1,
-                    title: "Accessibility Access",
-                    description: "Enables keyboard shortcut detection (\(settings.primaryShortcut.rawValue)) and instantly brings your selected window to the front.",
-                    icon: "keyboard.fill",
-                    isGranted: permissions.hasAccessibility,
-                    actionTitle: "Grant Permission",
-                    action: { permissions.requestAccessibility() }
-                )
-
-                // Step 2: Screen Recording
-                permissionStepCard(
-                    stepNumber: 2,
-                    title: "Screen Recording Access",
-                    description: "Enables Apple ScreenCaptureKit on the GPU to stream live 60 FPS window previews. 100% private, stays on your device.",
-                    icon: "macwindow.on.rectangle",
-                    isGranted: permissions.hasScreenRecording,
-                    actionTitle: "Grant Permission",
-                    action: { permissions.requestScreenRecording() }
+                .background(Color.primary.opacity(0.03))
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .stroke(Color.primary.opacity(0.08), lineWidth: 1)
                 )
             }
             .padding(.horizontal, 24)
             .padding(.top, 16)
 
-            // MARK: - Interactive Quick Tip Card
-            HStack(spacing: 12) {
-                Image(systemName: "lightbulb.fill")
-                    .font(.system(size: 14))
-                    .foregroundColor(.yellow)
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("How to Switch")
-                        .font(.system(size: 12, weight: .semibold))
-                    Text("Hold **\(settings.primaryShortcut == .commandTab ? "⌘ Command" : "⌥ Option")** and tap **Tab** to cycle • Tap **W** to close any window • Release to switch.")
-                        .font(.system(size: 11))
-                        .foregroundColor(.secondary)
-                }
-                Spacer()
-            }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
-            .background(Color.primary.opacity(0.03))
-            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .stroke(Color.primary.opacity(0.08), lineWidth: 1)
+            // MARK: - Interactive Product Experience & Keycap Preview
+            MiniSwitcherPreview(
+                shortcutName: settings.primaryShortcut.rawValue,
+                accentColor: settings.accentColor
             )
             .padding(.horizontal, 24)
-            .padding(.top, 12)
+            .padding(.top, 14)
 
             Spacer()
 
@@ -106,17 +93,17 @@ public struct OnboardingView: View {
             HStack(spacing: 12) {
                 if allPermissionsGranted {
                     HStack(spacing: 6) {
-                        Image(systemName: "checkmark.circle.fill")
+                        Image(systemName: "checkmark.seal.fill")
                             .foregroundColor(.green)
-                            .font(.system(size: 14))
-                        Text("All permissions active")
+                            .font(.system(size: 13))
+                        Text("Ready to switch")
                             .font(.system(size: 12, weight: .medium))
                             .foregroundColor(.secondary)
                     }
 
                     Spacer()
 
-                    Button("Try Switcher") {
+                    Button("Test Switcher") {
                         SwitcherState.shared.show()
                     }
                     .controlSize(.regular)
@@ -131,7 +118,7 @@ public struct OnboardingView: View {
                     HStack(spacing: 6) {
                         ProgressView()
                             .scaleEffect(0.65)
-                        Text("Grant permissions above to start")
+                        Text("Grant permissions above to begin")
                             .font(.system(size: 11.5))
                             .foregroundColor(.secondary)
                     }
@@ -156,84 +143,165 @@ public struct OnboardingView: View {
             .padding(.vertical, 14)
             .background(Color(NSColor.windowBackgroundColor))
         }
-        .frame(width: 550, height: 490)
+        .frame(width: 520, height: 560)
         .onAppear {
             permissions.checkPermissions()
         }
     }
 
-    private func permissionStepCard(
-        stepNumber: Int,
-        title: String,
-        description: String,
+    private func permissionRow(
         icon: String,
+        title: String,
+        subtitle: String,
         isGranted: Bool,
-        actionTitle: String,
         action: @escaping () -> Void
     ) -> some View {
-        HStack(alignment: .center, spacing: 14) {
-            // Step / Granted indicator icon
+        HStack(spacing: 14) {
             ZStack {
-                Circle()
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .fill(isGranted ? Color.green.opacity(0.12) : settings.accentColor.opacity(0.10))
-                    .frame(width: 38, height: 38)
+                    .frame(width: 32, height: 32)
 
-                if isGranted {
-                    Image(systemName: "checkmark")
-                        .font(.system(size: 15, weight: .bold))
-                        .foregroundColor(.green)
-                } else {
-                    Image(systemName: icon)
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundColor(settings.accentColor)
-                }
+                Image(systemName: isGranted ? "checkmark" : icon)
+                    .font(.system(size: 14, weight: isGranted ? .bold : .medium))
+                    .foregroundColor(isGranted ? .green : settings.accentColor)
             }
 
-            // Description text
             VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 6) {
-                    Text("Step \(stepNumber):")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundColor(.secondary)
-                    Text(title)
-                        .font(.system(size: 13, weight: .semibold))
-                }
-
-                Text(description)
+                Text(title)
+                    .font(.system(size: 13, weight: .semibold))
+                Text(subtitle)
                     .font(.system(size: 11))
                     .foregroundColor(.secondary)
+                    .lineLimit(nil)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
             Spacer()
 
-            // Action / Status Pill
             if isGranted {
                 HStack(spacing: 4) {
-                    Image(systemName: "checkmark")
-                        .font(.system(size: 10, weight: .bold))
-                    Text("Enabled")
-                        .font(.system(size: 11, weight: .semibold))
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 13))
+                    Text("Granted")
+                        .font(.system(size: 11.5, weight: .medium))
                 }
                 .foregroundColor(.green)
-                .padding(.horizontal, 9)
-                .padding(.vertical, 4)
-                .background(Color.green.opacity(0.12))
-                .clipShape(Capsule())
+                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
             } else {
-                Button(actionTitle, action: action)
+                Button("Grant Access", action: action)
                     .buttonStyle(.borderedProminent)
                     .controlSize(.small)
             }
         }
-        .padding(12)
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(isGranted ? Color.green.opacity(0.03) : Color.primary.opacity(0.02))
-        )
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+    }
+}
+
+// MARK: - Mini Switcher Preview & Physical Keycaps
+private struct MiniSwitcherPreview: View {
+    let shortcutName: String
+    let accentColor: Color
+
+    var body: some View {
+        VStack(spacing: 10) {
+            // Live Glass Mockup
+            HStack(spacing: 8) {
+                miniCard(icon: "safari.fill", title: "Safari", isSelected: false)
+                miniCard(icon: "curlybraces", title: "Xcode", isSelected: true)
+                miniCard(icon: "terminal.fill", title: "Terminal", isSelected: false)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(Color(white: 0.12).opacity(0.92))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(
+                        LinearGradient(
+                            colors: [Color.white.opacity(0.38), Color.white.opacity(0.08)],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        ),
+                        lineWidth: 1
+                    )
+            )
+            .shadow(color: Color.black.opacity(0.14), radius: 8, x: 0, y: 4)
+
+            // Physical Apple Keycaps
+            HStack(spacing: 6) {
+                KeycapView(key: shortcutName.contains("Option") ? "⌥ Option" : "⌘ Command")
+                Text("+")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundColor(.secondary)
+                KeycapView(key: "⇥ Tab")
+                Text("to cycle •")
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+                KeycapView(key: "W")
+                Text("to close • Release to switch")
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+            }
+        }
+        .padding(.vertical, 12)
+        .padding(.horizontal, 14)
+        .frame(maxWidth: .infinity)
+        .background(Color.primary.opacity(0.02))
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(isGranted ? Color.green.opacity(0.20) : Color.primary.opacity(0.08), lineWidth: 1)
+                .stroke(Color.primary.opacity(0.06), lineWidth: 1)
         )
+    }
+
+    private func miniCard(icon: String, title: String, isSelected: Bool) -> some View {
+        VStack(spacing: 4) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 5, style: .continuous)
+                    .fill(Color(white: 0.20))
+                    .frame(width: 68, height: 40)
+
+                Image(systemName: icon)
+                    .font(.system(size: 15))
+                    .foregroundColor(isSelected ? accentColor : .white.opacity(0.7))
+            }
+
+            Text(title)
+                .font(.system(size: 9, weight: isSelected ? .semibold : .regular))
+                .foregroundColor(isSelected ? .white : .white.opacity(0.6))
+        }
+        .padding(3)
+        .background(
+            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                .fill(isSelected ? accentColor.opacity(0.20) : Color.clear)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                .stroke(isSelected ? accentColor : Color.clear, lineWidth: 1.5)
+        )
+    }
+}
+
+private struct KeycapView: View {
+    let key: String
+
+    var body: some View {
+        Text(key)
+            .font(.system(size: 10.5, weight: .semibold, design: .rounded))
+            .foregroundColor(.primary)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 3.5)
+            .background(Color(NSColor.controlBackgroundColor))
+            .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 5, style: .continuous)
+                    .stroke(Color.primary.opacity(0.12), lineWidth: 1)
+            )
+            .shadow(color: Color.black.opacity(0.06), radius: 1, x: 0, y: 1)
     }
 }
