@@ -223,7 +223,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
     @objc public func openOnboarding() {
         if onboardingWindow == nil {
             let window = NSWindow(
-                contentRect: NSRect(x: 0, y: 0, width: 580, height: 530),
+                contentRect: NSRect(x: 0, y: 0, width: 550, height: 490),
                 styleMask: [.titled, .closable, .miniaturizable],
                 backing: .buffered,
                 defer: false

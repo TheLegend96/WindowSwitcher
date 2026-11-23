@@ -14,7 +14,7 @@ public enum SettingsTab: String, CaseIterable, Identifiable {
         case .appearance: return "paintbrush.fill"
         case .controls: return "command"
         case .general: return "gearshape.fill"
-        case .exceptions: return "hand.raised.fill"
+        case .exceptions: return "shield.slash.fill"
         }
     }
 }
@@ -76,9 +76,6 @@ public struct SettingsView: View {
             .background(Color(NSColor.controlBackgroundColor))
         }
         .frame(width: 820, height: 600)
-        .sheet(isPresented: $uiState.showAddExceptionSheet) {
-            addExceptionModal
-        }
         .onAppear {
             permissions.checkPermissions()
             if let first = settings.exceptionsList.first {
@@ -168,7 +165,7 @@ public struct SettingsView: View {
                     .foregroundColor(isSelected ? .white : settings.accentColor)
                     .frame(width: 18)
 
-                Text(tab.rawValue)
+                Text(tab == .exceptions ? "Excluded Apps" : tab.rawValue)
                     .font(.system(size: 13, weight: isSelected ? .semibold : .regular))
                     .foregroundColor(isSelected ? .white : .primary)
                 Spacer()
@@ -977,94 +974,185 @@ public struct SettingsView: View {
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 
-    // MARK: - 5. Exceptions Pane
+    // MARK: - 5. Excluded Apps Pane
     private var exceptionsPane: some View {
-        VStack(alignment: .leading, spacing: 20) {
+        VStack(alignment: .leading, spacing: 18) {
             // Header
             VStack(alignment: .leading, spacing: 3) {
-                Text("Exceptions")
+                Text("Excluded Applications & Rules")
                     .font(.system(size: 20, weight: .bold))
-                Text("Configure applications that Window Switcher should hide or ignore.")
+                Text("Control which apps appear in Window Switcher and when keyboard shortcuts are ignored.")
                     .font(.system(size: 12))
                     .foregroundColor(.secondary)
             }
 
+            // Explanatory Guidance Callout Card
+            HStack(spacing: 12) {
+                Image(systemName: "shield.lefthalf.filled")
+                    .font(.system(size: 18))
+                    .foregroundColor(settings.accentColor)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("How App Rules Work")
+                        .font(.system(size: 12, weight: .semibold))
+                    Text("Add applications you want to customize. For example, disable Window Switcher shortcuts while games, virtual machines, or remote desktops are in focus, or hide background tools from the switcher.")
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer()
+            }
+            .padding(12)
+            .background(Color.primary.opacity(0.03))
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .stroke(Color.primary.opacity(0.08), lineWidth: 1)
+            )
+
+            // Master-Detail Split Pane
             HStack(alignment: .top, spacing: 14) {
-                // Left List
+                // Left Column: App List with authentic icons
                 VStack(spacing: 0) {
-                    List(selection: $uiState.selectedExceptionId) {
-                        ForEach(settings.exceptionsList, id: \.bundleId) { app in
-                            HStack(spacing: 8) {
-                                Image(systemName: "app.dashed")
-                                    .foregroundColor(settings.accentColor)
-                                VStack(alignment: .leading, spacing: 1) {
-                                    Text(app.name)
-                                        .font(.system(size: 12, weight: .medium))
-                                    Text(app.bundleId)
-                                        .font(.system(size: 10))
-                                        .foregroundColor(.secondary)
+                    ScrollView {
+                        LazyVStack(spacing: 4) {
+                            ForEach(settings.exceptionsList, id: \.bundleId) { app in
+                                let isSelected = uiState.selectedExceptionId == app.bundleId
+                                Button(action: {
+                                    uiState.selectedExceptionId = app.bundleId
+                                }) {
+                                    HStack(spacing: 10) {
+                                        NativeAppIconView(bundleId: app.bundleId, size: 28)
+
+                                        VStack(alignment: .leading, spacing: 1) {
+                                            Text(app.name)
+                                                .font(.system(size: 12.5, weight: isSelected ? .semibold : .medium))
+                                                .foregroundColor(isSelected ? .white : .primary)
+                                                .lineLimit(1)
+                                            Text(app.bundleId)
+                                                .font(.system(size: 10))
+                                                .foregroundColor(isSelected ? .white.opacity(0.7) : .secondary)
+                                                .lineLimit(1)
+                                        }
+
+                                        Spacer()
+
+                                        if app.ignoreShortcuts == "When in focus" || app.ignoreShortcuts == "When active" {
+                                            Text("Pass-Through")
+                                                .font(.system(size: 9, weight: .bold))
+                                                .padding(.horizontal, 5)
+                                                .padding(.vertical, 2)
+                                                .background(isSelected ? Color.white.opacity(0.2) : settings.accentColor.opacity(0.12))
+                                                .foregroundColor(isSelected ? .white : settings.accentColor)
+                                                .clipShape(Capsule())
+                                        }
+                                    }
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 8)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                            .fill(isSelected ? settings.accentColor : Color.clear)
+                                    )
                                 }
+                                .buttonStyle(.plain)
                             }
-                            .tag(app.bundleId)
                         }
+                        .padding(6)
                     }
-                    .listStyle(.inset)
 
                     Divider()
 
                     // Add / Remove toolbar
-                    HStack(spacing: 12) {
-                        Button(action: { uiState.showAddExceptionSheet = true }) {
-                            Image(systemName: "plus")
-                                .font(.system(size: 11))
+                    HStack(spacing: 10) {
+                        Button(action: chooseApplicationFromDisk) {
+                            HStack(spacing: 4) {
+                                Image(systemName: "plus")
+                                    .font(.system(size: 11, weight: .bold))
+                                Text("Add App...")
+                                    .font(.system(size: 11.5, weight: .medium))
+                            }
                         }
-                        .buttonStyle(.plain)
+                        .controlSize(.small)
+
+                        Spacer()
 
                         Button(action: {
-                            settings.exceptionsList.removeAll { $0.bundleId == uiState.selectedExceptionId }
-                            uiState.selectedExceptionId = settings.exceptionsList.first?.bundleId ?? ""
+                            if let idx = settings.exceptionsList.firstIndex(where: { $0.bundleId == uiState.selectedExceptionId }) {
+                                settings.exceptionsList.remove(at: idx)
+                                uiState.selectedExceptionId = settings.exceptionsList.first?.bundleId ?? ""
+                            }
                         }) {
-                            Image(systemName: "minus")
+                            Image(systemName: "trash")
                                 .font(.system(size: 11))
+                                .foregroundColor(.red.opacity(0.8))
                         }
                         .buttonStyle(.plain)
                         .disabled(settings.exceptionsList.isEmpty)
-
-                        Spacer()
                     }
-                    .padding(.horizontal, 10)
+                    .padding(.horizontal, 12)
                     .padding(.vertical, 8)
                 }
-                .frame(width: 200, height: 380)
-                .background(Color.primary.opacity(0.03))
-                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .frame(width: 260, height: 350)
+                .background(Color.primary.opacity(0.02))
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                 .overlay(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
                         .stroke(Color.primary.opacity(0.08), lineWidth: 1)
                 )
 
-                // Right Detail
+                // Right Column: Detail Configuration
                 if let selected = settings.exceptionsList.first(where: { $0.bundleId == uiState.selectedExceptionId }) {
-                    VStack(alignment: .leading, spacing: 16) {
-                        HStack(spacing: 12) {
-                            Image(systemName: "app.fill")
-                                .font(.system(size: 32))
-                                .foregroundColor(settings.accentColor)
+                    VStack(alignment: .leading, spacing: 18) {
+                        // App Banner
+                        HStack(spacing: 14) {
+                            NativeAppIconView(bundleId: selected.bundleId, size: 44)
+
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(selected.name)
-                                    .font(.system(size: 15, weight: .bold))
+                                    .font(.system(size: 16, weight: .bold))
                                 Text(selected.bundleId)
                                     .font(.system(size: 11))
                                     .foregroundColor(.secondary)
                             }
+                            Spacer()
                         }
 
                         Divider()
 
-                        HStack {
-                            Text("Hide windows from switcher")
-                                .font(.system(size: 13, weight: .medium))
-                            Spacer()
+                        // Rule 1: Shortcut Key Behavior
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("When using this app:")
+                                .font(.system(size: 12.5, weight: .semibold))
+
+                            Picker("", selection: Binding(
+                                get: {
+                                    (selected.ignoreShortcuts == "When in focus" || selected.ignoreShortcuts == "When active") ? "When in focus" : "Never"
+                                },
+                                set: { newMode in
+                                    if let idx = settings.exceptionsList.firstIndex(where: { $0.bundleId == selected.bundleId }) {
+                                        settings.exceptionsList[idx].ignoreShortcuts = newMode
+                                    }
+                                }
+                            )) {
+                                Text("Pass-through shortcuts (Disable Switcher in this app)").tag("When in focus")
+                                Text("Normal (Window Switcher active)").tag("Never")
+                            }
+                            .pickerStyle(.radioGroup)
+                            .padding(.leading, 4)
+
+                            Text("Recommended for full-screen games, Screen Sharing, and virtual machines so their native keyboard shortcuts aren't intercepted.")
+                                .font(.system(size: 10.5))
+                                .foregroundColor(.secondary)
+                                .padding(.leading, 4)
+                        }
+
+                        Divider()
+
+                        // Rule 2: Switcher Visibility
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("In the Switcher HUD:")
+                                .font(.system(size: 12.5, weight: .semibold))
+
                             Picker("", selection: Binding(
                                 get: { selected.hideWindows },
                                 set: { newMode in
@@ -1073,93 +1161,90 @@ public struct SettingsView: View {
                                     }
                                 }
                             )) {
-                                Text("When no open window").tag("When no open window")
-                                Text("Always").tag("Always")
-                                Text("Never").tag("Never")
+                                Text("Hide when no windows open").tag("When no open window")
+                                Text("Always hide from switcher").tag("Always")
+                                Text("Always show in switcher").tag("Never")
                             }
-                            .frame(width: 180)
-                        }
+                            .pickerStyle(.radioGroup)
+                            .padding(.leading, 4)
 
-                        HStack {
-                            Text("Ignore switcher shortcuts")
-                                .font(.system(size: 13, weight: .medium))
-                            Spacer()
-                            Picker("", selection: Binding(
-                                get: { selected.ignoreShortcuts },
-                                set: { newMode in
-                                    if let idx = settings.exceptionsList.firstIndex(where: { $0.bundleId == selected.bundleId }) {
-                                        settings.exceptionsList[idx].ignoreShortcuts = newMode
-                                    }
-                                }
-                            )) {
-                                Text("Never").tag("Never")
-                                Text("When active").tag("When active")
-                                Text("Always").tag("Always")
-                            }
-                            .frame(width: 180)
+                            Text("Control whether this application appears in the switcher card list.")
+                                .font(.system(size: 10.5))
+                                .foregroundColor(.secondary)
+                                .padding(.leading, 4)
                         }
 
                         Spacer()
                     }
-                    .padding(16)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(Color.primary.opacity(0.03))
-                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .padding(18)
+                    .frame(maxWidth: .infinity, maxHeight: 350)
+                    .background(Color.primary.opacity(0.02))
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                     .overlay(
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
                             .stroke(Color.primary.opacity(0.08), lineWidth: 1)
                     )
                 } else {
-                    VStack {
+                    // Empty state when no app selected
+                    VStack(spacing: 12) {
                         Spacer()
-                        Text("Select an application from the list to configure rules.")
-                            .font(.system(size: 12))
+                        Image(systemName: "app.badge.checkmark")
+                            .font(.system(size: 38))
+                            .foregroundColor(.secondary.opacity(0.5))
+                        Text("No Excluded Applications")
+                            .font(.system(size: 14, weight: .semibold))
+                        Text("Window Switcher handles all application windows normally. Click 'Add App...' to configure custom rules for specific apps.")
+                            .font(.system(size: 11.5))
                             .foregroundColor(.secondary)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 30)
+
+                        Button(action: chooseApplicationFromDisk) {
+                            Label("Add Application...", systemImage: "plus")
+                        }
+                        .controlSize(.regular)
+                        .padding(.top, 4)
+
                         Spacer()
                     }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .frame(maxWidth: .infinity, maxHeight: 350)
+                    .background(Color.primary.opacity(0.02))
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .stroke(Color.primary.opacity(0.08), lineWidth: 1)
+                    )
                 }
             }
         }
     }
 
-    private var addExceptionModal: some View {
-        VStack(spacing: 16) {
-            Text("Add Excluded Application")
-                .font(.system(size: 15, weight: .bold))
+    private func chooseApplicationFromDisk() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.application]
+        panel.directoryURL = URL(fileURLWithPath: "/Applications")
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.prompt = "Exclude App"
+        panel.message = "Choose an application to configure rules for Window Switcher"
 
-            VStack(alignment: .leading, spacing: 6) {
-                Text("App Name:")
-                    .font(.system(size: 12, weight: .medium))
-                TextField("e.g. Photoshop", text: $uiState.newAppName)
-                    .textFieldStyle(.roundedBorder)
+        if panel.runModal() == .OK, let url = panel.url {
+            let bundle = Bundle(url: url)
+            let name = bundle?.infoDictionary?["CFBundleDisplayName"] as? String
+                ?? bundle?.infoDictionary?["CFBundleName"] as? String
+                ?? url.deletingPathExtension().lastPathComponent
+            let bundleId = bundle?.bundleIdentifier ?? ("custom." + url.deletingPathExtension().lastPathComponent)
 
-                Text("Bundle ID:")
-                    .font(.system(size: 12, weight: .medium))
-                TextField("e.g. com.adobe.Photoshop", text: $uiState.newBundleId)
-                    .textFieldStyle(.roundedBorder)
+            if !settings.exceptionsList.contains(where: { $0.bundleId == bundleId }) {
+                settings.exceptionsList.append(AppException(
+                    name: name,
+                    bundleId: bundleId,
+                    hideWindows: "When no open window",
+                    ignoreShortcuts: "When in focus"
+                ))
             }
-
-            HStack {
-                Button("Cancel") {
-                    uiState.showAddExceptionSheet = false
-                }
-                Spacer()
-                Button("Add") {
-                    if !uiState.newBundleId.isEmpty {
-                        let name = uiState.newAppName.isEmpty ? uiState.newBundleId : uiState.newAppName
-                        settings.exceptionsList.append(AppException(name: name, bundleId: uiState.newBundleId, hideWindows: "Always", ignoreShortcuts: "Never"))
-                        uiState.selectedExceptionId = uiState.newBundleId
-                        uiState.newAppName = ""
-                        uiState.newBundleId = ""
-                        uiState.showAddExceptionSheet = false
-                    }
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(uiState.newBundleId.isEmpty)
-            }
+            uiState.selectedExceptionId = bundleId
         }
-        .padding(20)
-        .frame(width: 340)
     }
 }

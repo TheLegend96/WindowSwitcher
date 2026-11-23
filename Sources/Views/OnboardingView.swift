@@ -4,7 +4,6 @@ import AppKit
 public struct OnboardingView: View {
     @ObservedObject var permissions = PermissionsManager.shared
     @ObservedObject var settings = SettingsManager.shared
-    @ObservedObject var updater = UpdateManager.shared
     public var onComplete: () -> Void
 
     public init(onComplete: @escaping () -> Void = {}) {
@@ -17,92 +16,122 @@ public struct OnboardingView: View {
 
     public var body: some View {
         VStack(spacing: 0) {
-            // Header Hero with Cobalt Azure App Icon
-            VStack(spacing: 10) {
-                AppBrandingIcon(size: 68, cornerRadius: 16)
+            // MARK: - Branded Hero Header
+            VStack(spacing: 12) {
+                AppBrandingIcon(size: 64, cornerRadius: 15)
                     .padding(.top, 24)
 
-                Text("Welcome to Window Switcher")
-                    .font(.system(size: 22, weight: .bold))
+                VStack(spacing: 4) {
+                    Text("Welcome to Window Switcher")
+                        .font(.system(size: 21, weight: .bold))
 
-                Text("Experience fluid, 60 FPS live-mirrored window switching on macOS.")
-                    .font(.system(size: 13))
-                    .foregroundColor(.secondary)
-                    .multilineTextAlignment(.center)
+                    Text("Switch between individual windows on macOS with live 60 FPS previews and fluid keyboard control.")
+                        .font(.system(size: 12.5))
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 20)
+                }
             }
-            .padding(.horizontal, 24)
-            .padding(.bottom, 16)
+            .padding(.bottom, 18)
 
             Divider()
 
-            // Step-by-Step System Permissions
+            // MARK: - Setup & Permissions Checklist
             VStack(spacing: 12) {
-                Text("System Permissions")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundColor(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                HStack {
+                    Text("Setup Permissions")
+                        .font(.system(size: 13, weight: .semibold))
+                    Spacer()
+                    Text("Required by macOS to switch & preview windows")
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                }
 
-                // 1. Accessibility
+                // Step 1: Accessibility
                 permissionStepCard(
-                    stepNumber: "1",
-                    title: "Accessibility",
-                    description: "Enables keyboard shortcut interception (⌘+Tab) and brings your chosen window to the front.",
-                    icon: "command",
+                    stepNumber: 1,
+                    title: "Accessibility Access",
+                    description: "Enables keyboard shortcut detection (\(settings.primaryShortcut.rawValue)) and instantly brings your selected window to the front.",
+                    icon: "keyboard.fill",
                     isGranted: permissions.hasAccessibility,
-                    actionTitle: "Open Accessibility Settings",
+                    actionTitle: "Grant Permission",
                     action: { permissions.requestAccessibility() }
                 )
 
-                // 2. Screen Recording
+                // Step 2: Screen Recording
                 permissionStepCard(
-                    stepNumber: "2",
-                    title: "Screen Recording",
-                    description: "Allows ScreenCaptureKit to stream live 60 FPS previews and uncropped window cards. 100% local, never stored.",
-                    icon: "video.fill",
+                    stepNumber: 2,
+                    title: "Screen Recording Access",
+                    description: "Enables Apple ScreenCaptureKit on the GPU to stream live 60 FPS window previews. 100% private, stays on your device.",
+                    icon: "macwindow.on.rectangle",
                     isGranted: permissions.hasScreenRecording,
-                    actionTitle: "Open Screen Recording Settings",
+                    actionTitle: "Grant Permission",
                     action: { permissions.requestScreenRecording() }
                 )
             }
-            .padding(.horizontal, 22)
-            .padding(.top, 14)
+            .padding(.horizontal, 24)
+            .padding(.top, 16)
 
-            // Update Check Section (Requested in setup guide)
-            updateSection
-                .padding(.horizontal, 22)
-                .padding(.top, 10)
+            // MARK: - Interactive Quick Tip Card
+            HStack(spacing: 12) {
+                Image(systemName: "lightbulb.fill")
+                    .font(.system(size: 14))
+                    .foregroundColor(.yellow)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("How to Switch")
+                        .font(.system(size: 12, weight: .semibold))
+                    Text("Hold **\(settings.primaryShortcut == .commandTab ? "⌘ Command" : "⌥ Option")** and tap **Tab** to cycle • Tap **W** to close any window • Release to switch.")
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                }
+                Spacer()
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .background(Color.primary.opacity(0.03))
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .stroke(Color.primary.opacity(0.08), lineWidth: 1)
+            )
+            .padding(.horizontal, 24)
+            .padding(.top, 12)
 
             Spacer()
 
             Divider()
 
-            // Bottom Footer
+            // MARK: - Clean Action Footer
             HStack(spacing: 12) {
                 if allPermissionsGranted {
                     HStack(spacing: 6) {
-                        Image(systemName: "checkmark.seal.fill")
+                        Image(systemName: "checkmark.circle.fill")
                             .foregroundColor(.green)
-                        Text("Ready to Switch!")
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundColor(.green)
+                            .font(.system(size: 14))
+                        Text("All permissions active")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(.secondary)
                     }
 
                     Spacer()
 
-                    Button("Test Switcher") {
+                    Button("Try Switcher") {
                         SwitcherState.shared.show()
                     }
+                    .controlSize(.regular)
 
                     Button("Get Started") {
                         UserDefaults.standard.set(true, forKey: "hasCompletedOnboarding")
                         onComplete()
                     }
                     .buttonStyle(.borderedProminent)
+                    .controlSize(.regular)
                 } else {
                     HStack(spacing: 6) {
                         ProgressView()
                             .scaleEffect(0.65)
-                        Text("Waiting for permissions...")
+                        Text("Grant permissions above to start")
                             .font(.system(size: 11.5))
                             .foregroundColor(.secondary)
                     }
@@ -112,127 +141,29 @@ public struct OnboardingView: View {
                     Button("Refresh Status") {
                         permissions.checkPermissions()
                     }
+                    .controlSize(.regular)
 
                     Button("Skip for Now") {
+                        UserDefaults.standard.set(true, forKey: "hasCompletedOnboarding")
                         onComplete()
                     }
+                    .buttonStyle(.plain)
                     .foregroundColor(.secondary)
+                    .font(.system(size: 12))
                 }
             }
-            .padding(.horizontal, 22)
+            .padding(.horizontal, 24)
             .padding(.vertical, 14)
             .background(Color(NSColor.windowBackgroundColor))
         }
-        .frame(width: 580, height: 530)
+        .frame(width: 550, height: 490)
         .onAppear {
             permissions.checkPermissions()
         }
     }
 
-    private var updateSection: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "arrow.triangle.2.circlepath.circle.fill")
-                .font(.system(size: 18))
-                .foregroundColor(settings.accentColor)
-
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 6) {
-                    Text("Software Update")
-                        .font(.system(size: 12, weight: .semibold))
-
-                    Text("v\(updater.currentVersion)")
-                        .font(.system(size: 11))
-                        .foregroundColor(.secondary)
-                }
-
-                switch updater.status {
-                case .idle:
-                    Text("Check for newer releases published on GitHub.")
-                        .font(.system(size: 10.5))
-                        .foregroundColor(.secondary)
-                case .checking:
-                    HStack(spacing: 4) {
-                        ProgressView().scaleEffect(0.5)
-                        Text("Checking GitHub for updates...")
-                            .font(.system(size: 10.5))
-                            .foregroundColor(.secondary)
-                    }
-                case .upToDate:
-                    Text("You have the latest version.")
-                        .font(.system(size: 10.5, weight: .medium))
-                        .foregroundColor(.green)
-                case .available(let version, _, _, _):
-                    Text("Version \(version) is available to install!")
-                        .font(.system(size: 10.5, weight: .semibold))
-                        .foregroundColor(settings.accentColor)
-                case .downloading(let progress):
-                    Text("Downloading update: \(Int(progress * 100))%")
-                        .font(.system(size: 10.5))
-                        .foregroundColor(.secondary)
-                case .installing:
-                    Text("Installing update...")
-                        .font(.system(size: 10.5))
-                        .foregroundColor(.secondary)
-                case .readyToRelaunch:
-                    Text("Update ready to finish!")
-                        .font(.system(size: 10.5, weight: .semibold))
-                        .foregroundColor(.green)
-                case .error(let message):
-                    Text(message)
-                        .font(.system(size: 10.5))
-                        .foregroundColor(.red)
-                        .lineLimit(1)
-                }
-            }
-
-            Spacer()
-
-            switch updater.status {
-            case .idle, .upToDate, .error:
-                Button("Check for Latest Update") {
-                    updater.checkForUpdates(userInitiated: true)
-                }
-                .controlSize(.small)
-
-            case .checking:
-                ProgressView()
-                    .scaleEffect(0.6)
-
-            case .available(_, _, let downloadUrl, _):
-                Button("Download & Install") {
-                    updater.downloadAndInstall(from: downloadUrl)
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.small)
-
-            case .downloading(let progress):
-                ProgressView(value: progress)
-                    .frame(width: 80)
-
-            case .installing:
-                ProgressView()
-                    .scaleEffect(0.6)
-
-            case .readyToRelaunch:
-                Button("Relaunch") {
-                    updater.relaunch()
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.small)
-            }
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .background(Color.primary.opacity(0.03))
-        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .stroke(Color.primary.opacity(0.08), lineWidth: 1)
-        )
-    }
-
     private func permissionStepCard(
-        stepNumber: String,
+        stepNumber: Int,
         title: String,
         description: String,
         icon: String,
@@ -240,37 +171,32 @@ public struct OnboardingView: View {
         actionTitle: String,
         action: @escaping () -> Void
     ) -> some View {
-        HStack(alignment: .top, spacing: 14) {
+        HStack(alignment: .center, spacing: 14) {
+            // Step / Granted indicator icon
             ZStack {
                 Circle()
-                    .fill(isGranted ? Color.green.opacity(0.15) : settings.accentColor.opacity(0.12))
-                    .frame(width: 36, height: 36)
-                Image(systemName: isGranted ? "checkmark" : icon)
-                    .font(.system(size: 15, weight: .bold))
-                    .foregroundColor(isGranted ? .green : settings.accentColor)
+                    .fill(isGranted ? Color.green.opacity(0.12) : settings.accentColor.opacity(0.10))
+                    .frame(width: 38, height: 38)
+
+                if isGranted {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 15, weight: .bold))
+                        .foregroundColor(.green)
+                } else {
+                    Image(systemName: icon)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundColor(settings.accentColor)
+                }
             }
 
-            VStack(alignment: .leading, spacing: 3) {
-                HStack {
+            // Description text
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text("Step \(stepNumber):")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundColor(.secondary)
                     Text(title)
                         .font(.system(size: 13, weight: .semibold))
-                    Spacer()
-                    if isGranted {
-                        Text("Active")
-                            .font(.system(size: 10.5, weight: .bold))
-                            .foregroundColor(.green)
-                            .padding(.horizontal, 7)
-                            .padding(.vertical, 2.5)
-                            .background(Color.green.opacity(0.15))
-                            .clipShape(Capsule())
-                    } else {
-                        Button(action: action) {
-                            Text(actionTitle)
-                                .font(.system(size: 11.5, weight: .semibold))
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .controlSize(.small)
-                    }
                 }
 
                 Text(description)
@@ -278,15 +204,36 @@ public struct OnboardingView: View {
                     .foregroundColor(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
+
+            Spacer()
+
+            // Action / Status Pill
+            if isGranted {
+                HStack(spacing: 4) {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 10, weight: .bold))
+                    Text("Enabled")
+                        .font(.system(size: 11, weight: .semibold))
+                }
+                .foregroundColor(.green)
+                .padding(.horizontal, 9)
+                .padding(.vertical, 4)
+                .background(Color.green.opacity(0.12))
+                .clipShape(Capsule())
+            } else {
+                Button(actionTitle, action: action)
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+            }
         }
         .padding(12)
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(isGranted ? Color.green.opacity(0.04) : Color.primary.opacity(0.03))
+                .fill(isGranted ? Color.green.opacity(0.03) : Color.primary.opacity(0.02))
         )
         .overlay(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(isGranted ? Color.green.opacity(0.25) : Color.primary.opacity(0.08), lineWidth: 1)
+                .stroke(isGranted ? Color.green.opacity(0.20) : Color.primary.opacity(0.08), lineWidth: 1)
         )
     }
 }

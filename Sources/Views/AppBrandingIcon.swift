@@ -47,3 +47,50 @@ public struct AppBrandingIcon: View {
         }
     }
 }
+
+public struct NativeAppIconView: View {
+    public let bundleId: String
+    public let size: CGFloat
+
+    public init(bundleId: String, size: CGFloat = 32) {
+        self.bundleId = bundleId
+        self.size = size
+    }
+
+    private var appIcon: NSImage? {
+        if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleId) {
+            return NSWorkspace.shared.icon(forFile: url.path)
+        }
+        if let app = NSRunningApplication.runningApplications(withBundleIdentifier: bundleId).first, let icon = app.icon {
+            return icon
+        }
+        if bundleId == "com.apple.finder" {
+            let path = "/System/Library/CoreServices/Finder.app"
+            if FileManager.default.fileExists(atPath: path) {
+                return NSWorkspace.shared.icon(forFile: path)
+            }
+        }
+        if bundleId == "com.apple.ScreenSharing" {
+            let path = "/System/Applications/Utilities/Screen Sharing.app"
+            if FileManager.default.fileExists(atPath: path) {
+                return NSWorkspace.shared.icon(forFile: path)
+            }
+        }
+        return NSWorkspace.shared.icon(forFileType: "app")
+    }
+
+    public var body: some View {
+        if let icon = appIcon {
+            Image(nsImage: icon)
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .frame(width: size, height: size)
+        } else {
+            Image(systemName: "app.fill")
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .frame(width: size, height: size)
+                .foregroundColor(.secondary)
+        }
+    }
+}
