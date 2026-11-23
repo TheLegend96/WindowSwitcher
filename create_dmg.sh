@@ -28,8 +28,9 @@ echo "💿 Mounting temporary disk image..."
 MOUNT_DIR=$(hdiutil attach "$TEMP_DMG" -readwrite -noverify -noautoopen | grep -o '/Volumes/.*' | head -n 1)
 echo "Mounted at: $MOUNT_DIR"
 
-echo "📂 Copying WindowSwitcher.app..."
+echo "📂 Copying WindowSwitcher.app and guides..."
 cp -R "$APP_BUNDLE" "$MOUNT_DIR/WindowSwitcher.app"
+cp "$PROJECT_DIR/Resources/Security-Guide.txt" "$MOUNT_DIR/First Launch Guide.txt"
 
 echo "🔗 Creating Applications alias..."
 ln -s /Applications "$MOUNT_DIR/Applications"
@@ -49,14 +50,15 @@ tell application "Finder"
         set current view of container window to icon view
         set toolbar visible of container window to false
         set statusbar visible of container window to false
-        set the bounds of container window to {320, 220, 860, 540}
+        set the bounds of container window to {320, 220, 860, 580}
         set viewOptions to the icon view options of container window
         set arrangement of viewOptions to not arranged
-        set icon size of viewOptions to 120
-        set text size of viewOptions to 13
+        set icon size of viewOptions to 110
+        set text size of viewOptions to 12
         delay 1
-        set position of item "WindowSwitcher.app" of container window to {140, 150}
-        set position of item "Applications" of container window to {400, 150}
+        set position of item "WindowSwitcher.app" of container window to {150, 140}
+        set position of item "Applications" of container window to {390, 140}
+        set position of item "First Launch Guide.txt" of container window to {270, 260}
         update without registering applications
         delay 1
         close

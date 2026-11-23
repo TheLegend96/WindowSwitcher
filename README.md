@@ -39,16 +39,41 @@ macOS Command-Tab switches between *entire applications*, not individual windows
 
 ## 🚀 Download & Installation
 
-> **No coding or terminal required!** You can install Window Switcher in seconds:
-
+### Option 1: Direct Download (Recommended)
 1. **[Download WindowSwitcher.dmg](https://github.com/TheLegend96/WindowSwitcher/releases/latest)** from the latest release.
 2. Open the downloaded `.dmg` file and drag **WindowSwitcher.app** into your **Applications** folder.
 3. Launch **Window Switcher** from Applications or Spotlight.
 4. When prompted, grant two standard macOS system permissions in **System Settings > Privacy & Security**:
-   - **Accessibility**: Needed to register the global shortcut and activate your chosen window.
-   - **Screen Recording**: Needed by macOS ScreenCaptureKit to display live preview thumbnails.
+   - **Accessibility**: Needed to detect shortcut triggers and switch active windows.
+   - **Screen Recording**: Needed by Apple ScreenCaptureKit to display live 60 FPS previews (100% private and on-device).
 
-That's it! Press **`⌥ Option + Tab`** (or **`⌘ Command + Tab`**) to start switching.
+> [!NOTE]
+> **First-Time macOS Gatekeeper Notice**
+> Because Window Switcher is an independent open-source project and not distributed through the Mac App Store, macOS Gatekeeper may display a prompt on first launch stating *"Apple cannot check it for malicious software"* or *"unidentified developer"*.
+> 
+> **This is Apple's standard security prompt for all free open-source Mac apps (like AltTab, Rectangle, and OBS).** You only need to authorize it once:
+> 
+> - **In System Settings**: Open **System Settings > Privacy & Security**, scroll down to the **Security** section, and click **"Open Anyway"** next to *WindowSwitcher was blocked*.
+> - **Or via Terminal (Instant 1-Click Fix)**:
+>   ```bash
+>   xattr -cr /Applications/WindowSwitcher.app
+>   ```
+> Once opened the first time, macOS remembers your choice forever.
+
+---
+
+### Option 2: 1-Line Terminal Quick Install
+Automatically downloads the latest release, installs it to `/Applications`, configures Gatekeeper permissions, and launches the app:
+```bash
+curl -fsSL https://raw.githubusercontent.com/TheLegend96/WindowSwitcher/main/install-app.sh | bash
+```
+
+---
+
+### 🔒 100% Private, Local & Open Source
+- **Zero Network Tracking**: Window Switcher does not make any telemetry calls or track analytics.
+- **On-Device GPU Mirroring**: Previews are rendered directly via Apple's local ScreenCaptureKit GPU pipeline and never leave your Mac.
+- **Inspect the Code**: Every line of code is open-source and auditable right here on GitHub.
 
 ---
 

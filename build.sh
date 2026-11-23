@@ -45,7 +45,29 @@ swiftc -O \
     $SOURCES
 
 echo "✍️ Signing application bundle..."
-codesign --force --deep --sign - --requirements '=designated => identifier "com.custom.windowswitcher"' "$APP_BUNDLE"
+ENTITLEMENTS="$PROJECT_DIR/Resources/Entitlements.plist"
+
+# Check if a Developer ID certificate is available
+DEV_ID="${DEVELOPER_ID:-}"
+if [ -z "$DEV_ID" ]; then
+    DEV_ID=$(security find-identity -p codesigning -v | grep "Developer ID Application:" | head -n 1 | awk -F '"' '{print $2}' || true)
+fi
+
+if [ -n "$DEV_ID" ]; then
+    echo "🔑 Signing with Apple Developer ID: $DEV_ID..."
+    codesign --force --deep --options runtime --timestamp \
+        --entitlements "$ENTITLEMENTS" \
+        --sign "$DEV_ID" \
+        "$APP_BUNDLE"
+    echo "🔒 Hardened runtime and Apple Developer signature verified."
+else
+    echo "ℹ️ No Apple Developer ID found. Signing ad-hoc with designated identifier..."
+    codesign --force --deep \
+        --entitlements "$ENTITLEMENTS" \
+        --sign - \
+        --requirements '=designated => identifier "com.custom.windowswitcher"' \
+        "$APP_BUNDLE"
+fi
 
 echo "✅ Build successful!"
 echo "📍 Application created at: $APP_BUNDLE"
