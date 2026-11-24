@@ -66,6 +66,11 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
                 ScreenshotCoordinator.shared.captureActiveWindow()
             }
         }
+        DistributedNotificationCenter.default().addObserver(forName: NSNotification.Name("com.custom.windowswitcher.testClickOverlay"), object: nil, queue: .main) { _ in
+            Task { @MainActor in
+                ScreenshotCoordinator.shared.simulateWindowClickForTesting()
+            }
+        }
         DistributedNotificationCenter.default().addObserver(forName: NSNotification.Name("com.custom.windowswitcher.testEditorWindow"), object: nil, queue: .main) { _ in
             Task { @MainActor in
                 // Generate a sample preview image

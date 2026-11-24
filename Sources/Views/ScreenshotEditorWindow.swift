@@ -72,6 +72,7 @@ public final class ScreenshotEditorState: ObservableObject {
 
     public var image: NSImage?
     public var imageSize: CGSize = .zero
+    public var hasEmbeddedShadow: Bool = false
 
     public func undo() {
         if !annotations.isEmpty {
@@ -94,10 +95,11 @@ public class ScreenshotEditorWindowController: NSObject, NSWindowDelegate {
         super.init()
     }
 
-    public func show(image: NSImage, sourceRect: NSRect, on screen: NSScreen? = nil) {
+    public func show(image: NSImage, sourceRect: NSRect, hasEmbeddedShadow: Bool = false, on screen: NSScreen? = nil) {
         let targetScreen = screen ?? NSScreen.main ?? NSScreen.screens[0]
         state.image = image
         state.imageSize = image.size
+        state.hasEmbeddedShadow = hasEmbeddedShadow
         state.annotations.removeAll()
         state.nextPinNumber = 1
         state.selectedAnnotationIndex = nil
@@ -397,6 +399,7 @@ public struct ScreenshotEditorCanvasRepresentable: NSViewRepresentable {
 public class ScreenshotEditorCanvasNSView: NSView {
     private var state: ScreenshotEditorState
     private var cachedBitmapRep: NSBitmapImageRep?
+    private var cachedImageID: ObjectIdentifier?
     private var trackingAreaRef: NSTrackingArea?
 
     // Drag interaction tracking
@@ -422,9 +425,18 @@ public class ScreenshotEditorCanvasNSView: NSView {
     }
 
     private func updateBitmapCache() {
-        if let img = state.image, cachedBitmapRep == nil {
+        guard let img = state.image else {
+            cachedBitmapRep = nil
+            cachedImageID = nil
+            return
+        }
+        let imgID = ObjectIdentifier(img)
+        if cachedImageID != imgID {
+            cachedImageID = imgID
             if let tiff = img.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff) {
                 self.cachedBitmapRep = rep
+            } else {
+                self.cachedBitmapRep = nil
             }
         }
     }
@@ -748,9 +760,11 @@ public class ScreenshotEditorCanvasNSView: NSView {
         guard let img = state.image else { return }
         let imgRect = imageDisplayRect()
 
-        // Drop shadow behind base image
+        // Drop shadow behind raw area crops (window captures already embed Apple drop shadow)
         ctx.saveGState()
-        ctx.setShadow(offset: CGSize(width: 0, height: -6), blur: 14, color: NSColor.black.withAlphaComponent(0.22).cgColor)
+        if !state.hasEmbeddedShadow {
+            ctx.setShadow(offset: CGSize(width: 0, height: -6), blur: 14, color: NSColor.black.withAlphaComponent(0.22).cgColor)
+        }
         img.draw(in: imgRect)
         ctx.restoreGState()
 
