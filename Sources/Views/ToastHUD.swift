@@ -13,6 +13,7 @@ public class ToastHUDController {
     /// Shows the interactive liquid glass OCR toast notification with live text preview and Cut Breaks action.
     public func showOCRToast(
         text: String,
+        initialCut: Bool = false,
         on screen: NSScreen? = nil
     ) {
         dismissTimer?.invalidate()
@@ -39,6 +40,7 @@ public class ToastHUDController {
         let accentColor = SettingsManager.shared.accentColor
         let model = OCRToastModel(
             text: text,
+            initialCut: initialCut,
             onCutBreaks: { newText in
                 let pasteboard = NSPasteboard.general
                 pasteboard.clearContents()
@@ -158,11 +160,22 @@ final class OCRToastModel: ObservableObject {
     let onCutBreaks: (String) -> Void
     let onDismiss: () -> Void
 
-    init(text: String, onCutBreaks: @escaping (String) -> Void, onDismiss: @escaping () -> Void) {
-        self.currentText = text
+    init(text: String, initialCut: Bool = false, onCutBreaks: @escaping (String) -> Void, onDismiss: @escaping () -> Void) {
         self.originalText = text
         self.onCutBreaks = onCutBreaks
         self.onDismiss = onDismiss
+        if initialCut {
+            let singleLine = text
+                .components(separatedBy: .newlines)
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+                .filter { !$0.isEmpty }
+                .joined(separator: " ")
+            self.currentText = singleLine
+            self.breaksCut = true
+        } else {
+            self.currentText = text
+            self.breaksCut = false
+        }
     }
 
     func toggleCutBreaks() {
@@ -209,27 +222,27 @@ private struct OCRToastView: View {
 
             Spacer(minLength: 4)
 
-            // "Cut Breaks" Button
+            // "Cut Breaks" Button - Refined Cobalt Azure Liquid Glass Styling
             Button(action: { model.toggleCutBreaks() }) {
-                HStack(spacing: 4) {
+                HStack(spacing: 5) {
                     if model.breaksCut {
                         Image(systemName: "checkmark")
-                            .font(.system(size: 10, weight: .bold))
-                            .foregroundColor(.green)
+                            .font(.system(size: 9.5, weight: .bold))
+                            .foregroundColor(accentColor)
                     }
                     Text(model.breaksCut ? "Breaks Cut" : "Cut Breaks")
                         .font(.system(size: 11, weight: .medium))
-                        .foregroundColor(model.breaksCut ? .green : .primary)
+                        .foregroundColor(model.breaksCut ? accentColor : .primary)
                 }
-                .padding(.horizontal, 9)
-                .padding(.vertical, 6)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5.5)
                 .background(
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        .fill(model.breaksCut ? Color.green.opacity(0.12) : Color.primary.opacity(0.08))
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .fill(model.breaksCut ? accentColor.opacity(0.12) : Color.primary.opacity(0.06))
                 )
                 .overlay(
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        .stroke(model.breaksCut ? Color.green.opacity(0.35) : Color.primary.opacity(0.12), lineWidth: 0.8)
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .stroke(model.breaksCut ? accentColor.opacity(0.35) : Color.primary.opacity(0.10), lineWidth: 0.8)
                 )
             }
             .buttonStyle(.plain)
@@ -237,9 +250,10 @@ private struct OCRToastView: View {
             // Dismiss X Button
             Button(action: model.onDismiss) {
                 Image(systemName: "xmark")
-                    .font(.system(size: 10, weight: .bold))
+                    .font(.system(size: 9.5, weight: .semibold))
                     .foregroundColor(.secondary)
-                    .padding(4)
+                    .padding(5)
+                    .background(Circle().fill(Color.primary.opacity(0.04)))
             }
             .buttonStyle(.plain)
         }

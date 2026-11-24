@@ -1339,7 +1339,60 @@ private struct ShortcutRecorderField: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            Button(action: {
+            HStack(spacing: 6) {
+                if uiState.isRecordingOCRShortcut {
+                    HStack(spacing: 6) {
+                        Circle()
+                            .fill(Color.blue)
+                            .frame(width: 5.5, height: 5.5)
+                        Text("Press shortcut keys…")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundColor(.primary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .center)
+                } else {
+                    if keyCombination.isEmpty {
+                        Text("Record Shortcut")
+                            .font(.system(size: 11.5, weight: .regular))
+                            .foregroundColor(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .center)
+                    } else {
+                        Text(keyCombination.compactDisplay)
+                            .font(.system(size: 12.5, weight: .semibold, design: .rounded))
+                            .foregroundColor(.primary)
+                            .frame(maxWidth: .infinity, alignment: .center)
+
+                        Button(action: {
+                            keyCombination = .empty
+                        }) {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.system(size: 11))
+                                .foregroundColor(.secondary.opacity(0.55))
+                        }
+                        .buttonStyle(.plain)
+                        .help("Clear shortcut")
+                    }
+                }
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 4)
+            .frame(minWidth: 120, minHeight: 26)
+            .background(
+                Capsule()
+                    .fill(uiState.isRecordingOCRShortcut ? Color.blue.opacity(0.08) : Color(NSColor.controlBackgroundColor))
+            )
+            .overlay(
+                Capsule()
+                    .stroke(
+                        uiState.isRecordingOCRShortcut
+                            ? Color.blue.opacity(0.65)
+                            : Color.primary.opacity(0.12),
+                        lineWidth: uiState.isRecordingOCRShortcut ? 1.2 : 0.8
+                    )
+            )
+            .shadow(color: Color.black.opacity(0.02), radius: 1, y: 0.5)
+            .contentShape(Capsule())
+            .onTapGesture {
                 if uiState.isRecordingOCRShortcut {
                     uiState.stopRecordingOCR()
                 } else {
@@ -1347,51 +1400,7 @@ private struct ShortcutRecorderField: View {
                         keyCombination = newCombo
                     }
                 }
-            }) {
-                HStack(spacing: 5) {
-                    if uiState.isRecordingOCRShortcut {
-                        HStack(spacing: 6) {
-                            Circle()
-                                .fill(Color.blue)
-                                .frame(width: 6, height: 6)
-                            Text("Press shortcut keys…")
-                                .font(.system(size: 11.5, weight: .medium))
-                                .foregroundColor(.primary)
-                        }
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 4)
-                    } else {
-                        HStack(spacing: 4) {
-                            ForEach(keyCombination.keycapTokens, id: \.self) { token in
-                                Text(token)
-                                    .font(.system(size: 11, weight: .semibold, design: .rounded))
-                                    .foregroundColor(.primary)
-                                    .padding(.horizontal, 7)
-                                    .padding(.vertical, 3.5)
-                                    .background(Color(NSColor.controlBackgroundColor))
-                                    .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 4, style: .continuous)
-                                            .stroke(Color.primary.opacity(0.12), lineWidth: 1)
-                                    )
-                                    .shadow(color: Color.black.opacity(0.04), radius: 1, y: 0.5)
-                            }
-                        }
-                        .padding(.horizontal, 4)
-                        .padding(.vertical, 3)
-                    }
-                }
-                .frame(minWidth: 120, minHeight: 28)
-                .background(
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        .fill(uiState.isRecordingOCRShortcut ? Color.blue.opacity(0.08) : Color.primary.opacity(0.03))
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        .stroke(uiState.isRecordingOCRShortcut ? Color.blue : Color.primary.opacity(0.12), lineWidth: uiState.isRecordingOCRShortcut ? 1.5 : 1)
-                )
             }
-            .buttonStyle(.plain)
 
             if keyCombination != defaultCombination {
                 Button(action: {
@@ -1403,6 +1412,7 @@ private struct ShortcutRecorderField: View {
                         .foregroundColor(.secondary)
                 }
                 .buttonStyle(.plain)
+                .help("Reset to default (⌥ W)")
             }
         }
         .onDisappear {

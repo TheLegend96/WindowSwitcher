@@ -6,6 +6,11 @@ public struct KeyCombination: Codable, Equatable {
 
     public static let defaultOCR = KeyCombination(keyCode: 13, modifiers: NSEvent.ModifierFlags.option.rawValue) // ⌥W
     public static let alternativeOCR = KeyCombination(keyCode: 17, modifiers: NSEvent.ModifierFlags.option.rawValue) // ⌥T
+    public static let empty = KeyCombination(keyCode: 65535, modifiers: 0)
+
+    public var isEmpty: Bool {
+        return keyCode == 65535 || (keyCode == 0 && modifiers == 0)
+    }
 
     public init(keyCode: UInt16, modifiers: UInt) {
         self.keyCode = keyCode
@@ -16,16 +21,18 @@ public struct KeyCombination: Codable, Equatable {
         NSEvent.ModifierFlags(rawValue: modifiers)
     }
 
-    public var hasCommand: Bool { modifierFlags.contains(.command) }
-    public var hasOption: Bool { modifierFlags.contains(.option) }
-    public var hasShift: Bool { modifierFlags.contains(.shift) }
-    public var hasControl: Bool { modifierFlags.contains(.control) }
+    public var hasCommand: Bool { !isEmpty && modifierFlags.contains(.command) }
+    public var hasOption: Bool { !isEmpty && modifierFlags.contains(.option) }
+    public var hasShift: Bool { !isEmpty && modifierFlags.contains(.shift) }
+    public var hasControl: Bool { !isEmpty && modifierFlags.contains(.control) }
 
     public var keySymbol: String {
+        guard !isEmpty else { return "" }
         return KeyCombination.keyName(for: keyCode)
     }
 
     public var keycapTokens: [String] {
+        guard !isEmpty else { return ["Record Shortcut"] }
         var tokens: [String] = []
         if hasControl { tokens.append("⌃ Control") }
         if hasOption { tokens.append("⌥ Option") }
@@ -36,10 +43,26 @@ public struct KeyCombination: Codable, Equatable {
     }
 
     public var displayString: String {
-        keycapTokens.joined(separator: " + ")
+        guard !isEmpty else { return "Disabled" }
+        return keycapTokens.joined(separator: " + ")
+    }
+
+    public var compactDisplay: String {
+        guard !isEmpty else { return "Record Shortcut" }
+        var str = ""
+        if hasControl { str += "⌃" }
+        if hasOption { str += "⌥" }
+        if hasShift { str += "⇧" }
+        if hasCommand { str += "⌘" }
+        if !str.isEmpty {
+            str += " "
+        }
+        str += keySymbol
+        return str
     }
 
     public func matches(cgFlags: CGEventFlags, keyCode: Int64) -> Bool {
+        guard !isEmpty else { return false }
         guard UInt16(keyCode) == self.keyCode else { return false }
         let isCmd = cgFlags.contains(.maskCommand)
         let isAlt = cgFlags.contains(.maskAlternate)
@@ -49,6 +72,7 @@ public struct KeyCombination: Codable, Equatable {
     }
 
     public func matches(nsFlags: NSEvent.ModifierFlags, keyCode: UInt16) -> Bool {
+        guard !isEmpty else { return false }
         guard keyCode == self.keyCode else { return false }
         let isCmd = nsFlags.contains(.command)
         let isAlt = nsFlags.contains(.option)
