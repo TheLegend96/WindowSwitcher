@@ -56,9 +56,31 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.openOnboarding()
             }
         }
-        DistributedNotificationCenter.default().addObserver(forName: NSNotification.Name("com.custom.windowswitcher.triggerOCR"), object: nil, queue: .main) { _ in
+        DistributedNotificationCenter.default().addObserver(forName: NSNotification.Name("com.custom.windowswitcher.triggerScreenshot"), object: nil, queue: .main) { _ in
             Task { @MainActor in
-                ScreenOCRCoordinator.shared.startSelection()
+                ScreenshotCoordinator.shared.startAreaCapture()
+            }
+        }
+        DistributedNotificationCenter.default().addObserver(forName: NSNotification.Name("com.custom.windowswitcher.triggerActiveWindowScreenshot"), object: nil, queue: .main) { _ in
+            Task { @MainActor in
+                ScreenshotCoordinator.shared.captureActiveWindow()
+            }
+        }
+        DistributedNotificationCenter.default().addObserver(forName: NSNotification.Name("com.custom.windowswitcher.testEditorWindow"), object: nil, queue: .main) { _ in
+            Task { @MainActor in
+                // Generate a sample preview image
+                let size = NSSize(width: 800, height: 500)
+                let image = NSImage(size: size, flipped: false) { rect in
+                    NSColor.windowBackgroundColor.setFill()
+                    rect.fill()
+                    let text = "WindowSwitcher Designer Studio Preview" as NSString
+                    text.draw(at: NSPoint(x: 40, y: 440), withAttributes: [
+                        .font: NSFont.systemFont(ofSize: 24, weight: .bold),
+                        .foregroundColor: NSColor.labelColor
+                    ])
+                    return true
+                }
+                ScreenshotEditorWindowController.shared.show(image: image, sourceRect: NSRect(origin: .zero, size: size))
             }
         }
         DistributedNotificationCenter.default().addObserver(forName: NSNotification.Name("com.custom.windowswitcher.openSettings"), object: nil, queue: .main) { [weak self] notif in

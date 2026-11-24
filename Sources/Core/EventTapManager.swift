@@ -21,6 +21,22 @@ public class EventTapManager {
         return ShortcutTrigger(rawValue: raw) ?? .commandTab
     }
 
+    private var currentScreenshotShortcut: KeyCombination {
+        if let data = UserDefaults.standard.data(forKey: "screenshotKeyCombination"),
+           let combo = try? JSONDecoder().decode(KeyCombination.self, from: data) {
+            return combo
+        }
+        return KeyCombination.defaultScreenshot
+    }
+
+    private var currentActiveWindowShortcut: KeyCombination {
+        if let data = UserDefaults.standard.data(forKey: "activeWindowKeyCombination"),
+           let combo = try? JSONDecoder().decode(KeyCombination.self, from: data) {
+            return combo
+        }
+        return KeyCombination.defaultActiveWindow
+    }
+
     private var currentOCRShortcut: KeyCombination {
         if let data = UserDefaults.standard.data(forKey: "ocrKeyCombination"),
            let combo = try? JSONDecoder().decode(KeyCombination.self, from: data) {
@@ -120,8 +136,20 @@ public class EventTapManager {
         let primary = currentTrigger
 
         if !isSwitcherActive {
-            // OCR Shortcut handling in Global Monitor
+            // Screenshot & OCR Triggers in Global Monitor
             if event.type == .keyDown {
+                if currentScreenshotShortcut.matches(nsFlags: event.modifierFlags, keyCode: event.keyCode) {
+                    DispatchQueue.main.async {
+                        ScreenshotCoordinator.shared.startAreaCapture()
+                    }
+                    return
+                }
+                if currentActiveWindowShortcut.matches(nsFlags: event.modifierFlags, keyCode: event.keyCode) {
+                    DispatchQueue.main.async {
+                        ScreenshotCoordinator.shared.captureActiveWindow()
+                    }
+                    return
+                }
                 if currentOCRShortcut.matches(nsFlags: event.modifierFlags, keyCode: event.keyCode) {
                     DispatchQueue.main.async {
                         ScreenOCRCoordinator.shared.startSelection()
@@ -288,8 +316,20 @@ public class EventTapManager {
             }
         } else {
             // When Switcher is NOT visible:
-            // 1. Text Recognition (OCR) Screen Trigger
+            // 1. Screenshot & Text Recognition (OCR) Screen Triggers
             if type == .keyDown {
+                if currentScreenshotShortcut.matches(cgFlags: flags, keyCode: keyCode) {
+                    DispatchQueue.main.async {
+                        ScreenshotCoordinator.shared.startAreaCapture()
+                    }
+                    return nil
+                }
+                if currentActiveWindowShortcut.matches(cgFlags: flags, keyCode: keyCode) {
+                    DispatchQueue.main.async {
+                        ScreenshotCoordinator.shared.captureActiveWindow()
+                    }
+                    return nil
+                }
                 if currentOCRShortcut.matches(cgFlags: flags, keyCode: keyCode) {
                     DispatchQueue.main.async {
                         ScreenOCRCoordinator.shared.startSelection()

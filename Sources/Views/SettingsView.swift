@@ -2,19 +2,21 @@ import SwiftUI
 import AppKit
 
 public enum SettingsTab: String, CaseIterable, Identifiable {
+    case screenshots = "Screenshots"
+    case designerTools = "Designer Tools"
+    case switcher = "Switcher"
     case appearance = "Appearance"
-    case controls = "Controls"
     case general = "General"
-    case exceptions = "Exceptions"
 
     public var id: String { rawValue }
 
     public var icon: String {
         switch self {
+        case .screenshots: return "camera.viewfinder"
+        case .designerTools: return "ruler.fill"
+        case .switcher: return "macwindow.on.rectangle"
         case .appearance: return "paintbrush.fill"
-        case .controls: return "command"
         case .general: return "gearshape.fill"
-        case .exceptions: return "shield.slash.fill"
         }
     }
 }
@@ -22,7 +24,7 @@ public enum SettingsTab: String, CaseIterable, Identifiable {
 public final class SettingsUIState: ObservableObject {
     public static let shared = SettingsUIState()
 
-    @Published public var selectedTab: SettingsTab = .appearance
+    @Published public var selectedTab: SettingsTab = .screenshots
     @Published public var searchQuery: String = ""
 
     // Exceptions selection
@@ -32,16 +34,16 @@ public final class SettingsUIState: ObservableObject {
     @Published public var newBundleId: String = ""
 
     // Shortcut recording
-    @Published public var isRecordingOCRShortcut: Bool = false
+    @Published public var recordingTargetId: String? = nil
     public var ocrEventMonitor: Any? = nil
 
-    public func startRecordingOCR(onRecorded: @escaping (KeyCombination) -> Void) {
-        stopRecordingOCR()
-        isRecordingOCRShortcut = true
+    public func startRecording(targetId: String, onRecorded: @escaping (KeyCombination) -> Void) {
+        stopRecording()
+        recordingTargetId = targetId
 
         ocrEventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown]) { [weak self] event in
             if event.keyCode == 53 { // Esc
-                self?.stopRecordingOCR()
+                self?.stopRecording()
                 return nil
             }
 
@@ -51,7 +53,7 @@ public final class SettingsUIState: ObservableObject {
             if rawFlags != 0 && event.keyCode != 55 && event.keyCode != 58 && event.keyCode != 56 && event.keyCode != 59 {
                 let combo = KeyCombination(keyCode: event.keyCode, modifiers: rawFlags)
                 onRecorded(combo)
-                self?.stopRecordingOCR()
+                self?.stopRecording()
                 return nil
             }
 
@@ -59,12 +61,12 @@ public final class SettingsUIState: ObservableObject {
         }
     }
 
-    public func stopRecordingOCR() {
+    public func stopRecording() {
         if let monitor = ocrEventMonitor {
             NSEvent.removeMonitor(monitor)
             ocrEventMonitor = nil
         }
-        isRecordingOCRShortcut = false
+        recordingTargetId = nil
     }
 }
 
@@ -88,14 +90,24 @@ public struct SettingsView: View {
             // MARK: - Content Pane
             Group {
                 switch uiState.selectedTab {
+                case .screenshots:
+                    ScrollView(.vertical, showsIndicators: true) {
+                        screenshotsPane
+                            .padding(26)
+                    }
+                case .designerTools:
+                    ScrollView(.vertical, showsIndicators: true) {
+                        designerToolsPane
+                            .padding(26)
+                    }
+                case .switcher:
+                    ScrollView(.vertical, showsIndicators: true) {
+                        switcherPane
+                            .padding(26)
+                    }
                 case .appearance:
                     ScrollView(.vertical, showsIndicators: true) {
                         appearancePane
-                            .padding(26)
-                    }
-                case .controls:
-                    ScrollView(.vertical, showsIndicators: true) {
-                        controlsPane
                             .padding(26)
                     }
                 case .general:
@@ -103,9 +115,6 @@ public struct SettingsView: View {
                         generalPane
                             .padding(26)
                     }
-                case .exceptions:
-                    exceptionsPane
-                        .padding(26)
                 }
             }
             .frame(minWidth: 600, maxWidth: .infinity, maxHeight: .infinity)
@@ -201,7 +210,7 @@ public struct SettingsView: View {
                     .foregroundColor(isSelected ? .white : settings.accentColor)
                     .frame(width: 18)
 
-                Text(tab == .exceptions ? "Excluded Apps" : tab.rawValue)
+                Text(tab.rawValue)
                     .font(.system(size: 13, weight: isSelected ? .semibold : .regular))
                     .foregroundColor(isSelected ? .white : .primary)
                 Spacer()
@@ -535,14 +544,278 @@ public struct SettingsView: View {
         .buttonStyle(.plain)
     }
 
-    // MARK: - 3. Controls Pane (Clean, Single-Page, Fully Functional)
-    private var controlsPane: some View {
+    // MARK: - 1. Screenshots & Capture Pane (HERO TAB)
+    private var screenshotsPane: some View {
         VStack(alignment: .leading, spacing: 22) {
             // Header
             VStack(alignment: .leading, spacing: 3) {
-                Text("Controls")
+                Text("Screenshots & Capture")
                     .font(.system(size: 20, weight: .bold))
-                Text("Configure shortcut keys and window switching behavior.")
+                Text("Capture full-resolution Retina screenshots, active windows, and extract text.")
+                    .font(.system(size: 12))
+                    .foregroundColor(.secondary)
+            }
+
+            // Hero Action Banner
+            HStack(spacing: 14) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(settings.accentColor.opacity(0.12))
+                        .frame(width: 44, height: 44)
+                    Image(systemName: "camera.viewfinder")
+                        .font(.system(size: 22, weight: .semibold))
+                        .foregroundColor(settings.accentColor)
+                }
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Area Screenshot & Designer Studio")
+                        .font(.system(size: 13.5, weight: .semibold))
+                        .foregroundColor(.primary)
+                    Text("Drag a selection box to measure distances, annotate, and inspect pixels.")
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                }
+
+                Spacer()
+
+                Button(action: {
+                    ScreenshotCoordinator.shared.startAreaCapture()
+                }) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "camera.fill")
+                            .font(.system(size: 11, weight: .semibold))
+                        Text("Take Screenshot")
+                            .font(.system(size: 12, weight: .semibold))
+                    }
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 7)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .fill(settings.accentColor)
+                    )
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(14)
+            .background(Color.primary.opacity(0.03))
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(Color.primary.opacity(0.08), lineWidth: 1)
+            )
+
+            // Inset Grouped Shortcuts Table (Shottr-Inspired)
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Capture Shortcuts")
+                    .font(.system(size: 13, weight: .semibold))
+
+                VStack(spacing: 0) {
+                    // Row 1: Area Screenshot
+                    shortcutTableRow(
+                        title: "Area screenshot & annotation",
+                        description: "Select custom screen area and open in Designer Studio",
+                        targetId: "screenshot",
+                        combination: $settings.screenshotKeyCombination,
+                        defaultCombo: .defaultScreenshot,
+                        onTry: { ScreenshotCoordinator.shared.startAreaCapture() }
+                    )
+
+                    Divider().padding(.horizontal, 12)
+
+                    // Row 2: Active Window Screenshot
+                    shortcutTableRow(
+                        title: "Active window screenshot",
+                        description: "Capture the currently focused window with native shadow",
+                        targetId: "activeWindow",
+                        combination: $settings.activeWindowKeyCombination,
+                        defaultCombo: .defaultActiveWindow,
+                        onTry: { ScreenshotCoordinator.shared.captureActiveWindow() }
+                    )
+
+                    Divider().padding(.horizontal, 12)
+
+                    // Row 3: Screen Text Recognition (OCR)
+                    shortcutTableRow(
+                        title: "Instant screen text recognition (OCR)",
+                        description: "Extract text from images, format paragraphs, and cut line breaks",
+                        targetId: "ocr",
+                        combination: $settings.ocrKeyCombination,
+                        defaultCombo: .defaultOCR,
+                        onTry: { ScreenOCRCoordinator.shared.startSelection() }
+                    )
+                }
+                .background(Color.primary.opacity(0.03))
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .stroke(Color.primary.opacity(0.08), lineWidth: 1)
+                )
+            }
+
+            Divider()
+
+            // Capture Behavior Options
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Capture Behavior")
+                    .font(.system(size: 13, weight: .semibold))
+
+                Toggle(isOn: $settings.autoOpenEditor) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Open in Designer Studio after capture")
+                            .font(.system(size: 12.5, weight: .medium))
+                        Text("Immediately opens the screenshot in the vector annotation window.")
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondary)
+                    }
+                }
+                .toggleStyle(.checkbox)
+
+                Toggle(isOn: $settings.playShutterSound) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Play camera shutter sound")
+                            .font(.system(size: 12.5, weight: .medium))
+                        Text("Plays Apple camera audio feedback upon capturing.")
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondary)
+                    }
+                }
+                .toggleStyle(.checkbox)
+            }
+        }
+    }
+
+    private func shortcutTableRow(
+        title: String,
+        description: String,
+        targetId: String,
+        combination: Binding<KeyCombination>,
+        defaultCombo: KeyCombination,
+        onTry: @escaping () -> Void
+    ) -> some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.system(size: 12.5, weight: .medium))
+                    .foregroundColor(.primary)
+                Text(description)
+                    .font(.system(size: 10.5))
+                    .foregroundColor(.secondary)
+            }
+
+            Spacer()
+
+            Button("Try") {
+                onTry()
+            }
+            .controlSize(.small)
+
+            ShortcutRecorderField(
+                targetId: targetId,
+                keyCombination: combination,
+                defaultCombination: defaultCombo
+            )
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+    }
+
+    // MARK: - 2. Designer Tools & Inspection Pane
+    private var designerToolsPane: some View {
+        VStack(alignment: .leading, spacing: 22) {
+            // Header
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Designer Tools & Inspection")
+                    .font(.system(size: 20, weight: .bold))
+                Text("Measure distances, audit spacing grids, and validate color contrast.")
+                    .font(.system(size: 12))
+                    .foregroundColor(.secondary)
+            }
+
+            // Smart Distance Measurement
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Smart Distance & Spacing")
+                    .font(.system(size: 13, weight: .semibold))
+
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Hold ⌥ Option to inspect element distances")
+                            .font(.system(size: 12.5, weight: .medium))
+                        Text("Hovering over UI elements in the editor automatically detects borders and shows distances in pixels.")
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondary)
+                    }
+                    Spacer()
+                    Toggle("", isOn: $settings.enableSmartDistance)
+                        .toggleStyle(.switch)
+                }
+                .padding(14)
+                .background(Color.primary.opacity(0.03))
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .stroke(Color.primary.opacity(0.08), lineWidth: 1)
+                )
+            }
+
+            // 4px / 8px Grid Audit
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Design System Grid Audit")
+                    .font(.system(size: 13, weight: .semibold))
+
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Spacing rhythm compliance")
+                            .font(.system(size: 12.5, weight: .medium))
+                        Text("Highlights non-standard spacings (e.g. 13px, 15px) in amber to catch implementation bugs.")
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondary)
+                    }
+                    Spacer()
+                    Picker("", selection: $settings.gridAuditUnit) {
+                        Text("4px Grid").tag(4)
+                        Text("8px Grid").tag(8)
+                        Text("Off").tag(1)
+                    }
+                    .pickerStyle(.segmented)
+                    .frame(width: 200)
+                }
+                .padding(14)
+                .background(Color.primary.opacity(0.03))
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .stroke(Color.primary.opacity(0.08), lineWidth: 1)
+                )
+            }
+
+            // Annotation Toolkit Overview
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Designer Studio Tool Shortcuts")
+                    .font(.system(size: 13, weight: .semibold))
+
+                VStack(spacing: 8) {
+                    shortcutRow(keys: ["D"], description: "Smart Dimension Line (|<--- 24px --->|)")
+                    shortcutRow(keys: ["A"], description: "Curved / Straight Callout Arrow")
+                    shortcutRow(keys: ["N"], description: "Numbered QA Bug / Step Pin (①, ②, ③)")
+                    shortcutRow(keys: ["R"], description: "Component Bounding Box (width × height)")
+                    shortcutRow(keys: ["T"], description: "Text Callout Note")
+                    shortcutRow(keys: ["B"], description: "Redaction Blur / Pixelate Box")
+                    shortcutRow(keys: ["Tab"], description: "Copy hovered pixel hex color directly to clipboard")
+                    shortcutRow(keys: ["⌘", "C"], description: "Copy flattened annotated image to clipboard")
+                }
+            }
+        }
+    }
+
+    // MARK: - 3. Window Switcher Pane
+    private var switcherPane: some View {
+        VStack(alignment: .leading, spacing: 22) {
+            // Header
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Window Switcher")
+                    .font(.system(size: 20, weight: .bold))
+                Text("Fast, 60 FPS live-mirrored window switching behavior.")
                     .font(.system(size: 12))
                     .foregroundColor(.secondary)
             }
@@ -619,76 +892,49 @@ public struct SettingsView: View {
 
             Divider()
 
-            // Screen Text Recognition (OCR) Utility
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(alignment: .center) {
+            // Window Switcher Filtering
+            VStack(alignment: .leading, spacing: 14) {
+                Text("Window Filtering")
+                    .font(.system(size: 13, weight: .semibold))
+
+                HStack {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Screen text recognition")
-                            .font(.system(size: 13, weight: .semibold))
-                        Text("Drag a selection box on your active screen to copy text from any application or image.")
+                        Text("Show windows from")
+                            .font(.system(size: 12.5, weight: .medium))
+                        Text("Filter switcher cards by application.")
                             .font(.system(size: 11))
                             .foregroundColor(.secondary)
                     }
-
                     Spacer()
-
-                    Button("Try Text Recognition") {
-                        ScreenOCRCoordinator.shared.startSelection()
+                    Picker("", selection: $settings.appsFilter) {
+                        Text("All apps").tag("All apps")
+                        Text("Active app").tag("Active app")
                     }
-                    .controlSize(.small)
+                    .pickerStyle(.segmented)
+                    .frame(width: 200)
                 }
 
                 HStack {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Shortcut key combination")
+                        Text("Show windows across")
                             .font(.system(size: 12.5, weight: .medium))
-                        Text("Click the field to record your preferred keyboard shortcut.")
+                        Text("Filter switcher cards by Space.")
                             .font(.system(size: 11))
                             .foregroundColor(.secondary)
                     }
-
                     Spacer()
-
-                    ShortcutRecorderField(
-                        keyCombination: $settings.ocrKeyCombination,
-                        defaultCombination: KeyCombination.defaultOCR
-                    )
+                    Picker("", selection: $settings.spacesFilter) {
+                        Text("All Spaces").tag("All Spaces")
+                        Text("Current Space").tag("Current Space")
+                    }
+                    .pickerStyle(.segmented)
+                    .frame(width: 200)
                 }
-                .padding(12)
-                .background(Color.primary.opacity(0.03))
-                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .stroke(Color.primary.opacity(0.08), lineWidth: 1)
-                )
             }
 
             Divider()
 
-            // Quick Navigation Shortcuts Cheat Sheet
-            VStack(alignment: .leading, spacing: 10) {
-                Text("Keyboard Navigation While Switcher is Open")
-                    .font(.system(size: 13, weight: .semibold))
-
-                VStack(spacing: 8) {
-                    shortcutRow(keys: ["Tab", "⇧ Tab"], description: "Cycle forward and backward through open windows")
-                    shortcutRow(keys: ["←", "→", "↑", "↓"], description: "Navigate directly across window card grid")
-                    shortcutRow(keys: ["Return", "Space"], description: "Focus selected window and close switcher")
-                    shortcutRow(keys: ["W", "⌫"], description: "Close the currently highlighted window")
-                    shortcutRow(keys: ["Esc"], description: "Dismiss switcher without activating any window")
-                }
-                .padding(14)
-                .background(Color.primary.opacity(0.03))
-                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .stroke(Color.primary.opacity(0.08), lineWidth: 1)
-                )
-            }
-
-            Divider()
-
-            // Window Filtering Toggles
+            // Window Visibility & Filtering
             VStack(alignment: .leading, spacing: 12) {
                 Text("Window Visibility & Filtering")
                     .font(.system(size: 13, weight: .semibold))
@@ -725,6 +971,22 @@ public struct SettingsView: View {
                     RoundedRectangle(cornerRadius: 10, style: .continuous)
                         .stroke(Color.primary.opacity(0.08), lineWidth: 1)
                 )
+            }
+
+            Divider()
+
+            // Quick Navigation Shortcuts Cheat Sheet
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Keyboard Navigation While Switcher is Open")
+                    .font(.system(size: 13, weight: .semibold))
+
+                VStack(spacing: 8) {
+                    shortcutRow(keys: ["Tab", "⇧ Tab"], description: "Cycle forward and backward through open windows")
+                    shortcutRow(keys: ["←", "→", "↑", "↓"], description: "Navigate directly across window card grid")
+                    shortcutRow(keys: ["Return", "Space"], description: "Focus selected window and close switcher")
+                    shortcutRow(keys: ["W", "⌫"], description: "Close the currently highlighted window")
+                    shortcutRow(keys: ["Esc"], description: "Dismiss switcher without activating any window")
+                }
             }
         }
     }
@@ -909,6 +1171,11 @@ public struct SettingsView: View {
                     )
                 }
             }
+
+            Divider()
+
+            // Excluded Applications Rules
+            exceptionsPane
 
             Divider()
 
@@ -1334,31 +1601,36 @@ public struct SettingsView: View {
 // MARK: - Interactive Apple HIG Shortcut Recorder Component
 private struct ShortcutRecorderField: View {
     @ObservedObject var uiState = SettingsUIState.shared
+    let targetId: String
     @Binding var keyCombination: KeyCombination
     let defaultCombination: KeyCombination
 
+    var isRecordingThis: Bool {
+        uiState.recordingTargetId == targetId
+    }
+
     var body: some View {
-        HStack(spacing: 8) {
-            HStack(spacing: 6) {
-                if uiState.isRecordingOCRShortcut {
-                    HStack(spacing: 6) {
+        HStack(spacing: 6) {
+            HStack(spacing: 5) {
+                if isRecordingThis {
+                    HStack(spacing: 5) {
                         Circle()
                             .fill(Color.blue)
-                            .frame(width: 5.5, height: 5.5)
-                        Text("Press shortcut keys…")
+                            .frame(width: 5, height: 5)
+                        Text("Press keys…")
                             .font(.system(size: 11, weight: .medium))
                             .foregroundColor(.primary)
                     }
                     .frame(maxWidth: .infinity, alignment: .center)
                 } else {
                     if keyCombination.isEmpty {
-                        Text("Record Shortcut")
-                            .font(.system(size: 11.5, weight: .regular))
+                        Text("Record")
+                            .font(.system(size: 11, weight: .regular))
                             .foregroundColor(.secondary)
                             .frame(maxWidth: .infinity, alignment: .center)
                     } else {
                         Text(keyCombination.compactDisplay)
-                            .font(.system(size: 12.5, weight: .semibold, design: .rounded))
+                            .font(.system(size: 11.5, weight: .semibold, design: .rounded))
                             .foregroundColor(.primary)
                             .frame(maxWidth: .infinity, alignment: .center)
 
@@ -1366,37 +1638,37 @@ private struct ShortcutRecorderField: View {
                             keyCombination = .empty
                         }) {
                             Image(systemName: "xmark.circle.fill")
-                                .font(.system(size: 11))
-                                .foregroundColor(.secondary.opacity(0.55))
+                                .font(.system(size: 10.5))
+                                .foregroundColor(.secondary.opacity(0.6))
                         }
                         .buttonStyle(.plain)
                         .help("Clear shortcut")
                     }
                 }
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 4)
-            .frame(minWidth: 120, minHeight: 26)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3.5)
+            .frame(width: 96, height: 26)
             .background(
                 Capsule()
-                    .fill(uiState.isRecordingOCRShortcut ? Color.blue.opacity(0.08) : Color(NSColor.controlBackgroundColor))
+                    .fill(isRecordingThis ? Color.blue.opacity(0.08) : Color(NSColor.controlBackgroundColor))
             )
             .overlay(
                 Capsule()
                     .stroke(
-                        uiState.isRecordingOCRShortcut
-                            ? Color.blue.opacity(0.65)
+                        isRecordingThis
+                            ? Color.blue.opacity(0.7)
                             : Color.primary.opacity(0.12),
-                        lineWidth: uiState.isRecordingOCRShortcut ? 1.2 : 0.8
+                        lineWidth: isRecordingThis ? 1.2 : 0.8
                     )
             )
             .shadow(color: Color.black.opacity(0.02), radius: 1, y: 0.5)
             .contentShape(Capsule())
             .onTapGesture {
-                if uiState.isRecordingOCRShortcut {
-                    uiState.stopRecordingOCR()
+                if isRecordingThis {
+                    uiState.stopRecording()
                 } else {
-                    uiState.startRecordingOCR { newCombo in
+                    uiState.startRecording(targetId: targetId) { newCombo in
                         keyCombination = newCombo
                     }
                 }
@@ -1404,19 +1676,19 @@ private struct ShortcutRecorderField: View {
 
             if keyCombination != defaultCombination {
                 Button(action: {
-                    uiState.stopRecordingOCR()
+                    uiState.stopRecording()
                     keyCombination = defaultCombination
                 }) {
                     Text("Reset")
-                        .font(.system(size: 11))
+                        .font(.system(size: 10.5))
                         .foregroundColor(.secondary)
                 }
                 .buttonStyle(.plain)
-                .help("Reset to default (⌥ W)")
+                .help("Reset to default")
             }
         }
         .onDisappear {
-            uiState.stopRecordingOCR()
+            uiState.stopRecording()
         }
     }
 }

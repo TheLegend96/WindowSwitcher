@@ -110,6 +110,34 @@ public class SettingsManager: ObservableObject {
         didSet { defaults.set(animationsEnabled, forKey: "animationsEnabled") }
     }
 
+    // MARK: - Screenshots & Designer Tools
+    @Published public var screenshotKeyCombination: KeyCombination {
+        didSet {
+            if let data = try? JSONEncoder().encode(screenshotKeyCombination) {
+                defaults.set(data, forKey: "screenshotKeyCombination")
+            }
+        }
+    }
+    @Published public var activeWindowKeyCombination: KeyCombination {
+        didSet {
+            if let data = try? JSONEncoder().encode(activeWindowKeyCombination) {
+                defaults.set(data, forKey: "activeWindowKeyCombination")
+            }
+        }
+    }
+    @Published public var autoOpenEditor: Bool {
+        didSet { defaults.set(autoOpenEditor, forKey: "autoOpenEditor") }
+    }
+    @Published public var playShutterSound: Bool {
+        didSet { defaults.set(playShutterSound, forKey: "playShutterSound") }
+    }
+    @Published public var enableSmartDistance: Bool {
+        didSet { defaults.set(enableSmartDistance, forKey: "enableSmartDistance") }
+    }
+    @Published public var gridAuditUnit: Int {
+        didSet { defaults.set(gridAuditUnit, forKey: "gridAuditUnit") }
+    }
+
     // MARK: - Controls & Filtering
     @Published public var primaryShortcut: ShortcutTrigger {
         didSet { defaults.set(primaryShortcut.rawValue, forKey: "primaryShortcut") }
@@ -269,6 +297,25 @@ public class SettingsManager: ObservableObject {
         let shortcutStr = defaults.string(forKey: "primaryShortcut") ?? ShortcutTrigger.commandTab.rawValue
         self.primaryShortcut = ShortcutTrigger(rawValue: shortcutStr) ?? .commandTab
         self.secondaryShortcut = defaults.string(forKey: "secondaryShortcut") ?? "⌥ + `"
+
+        if let data = defaults.data(forKey: "screenshotKeyCombination"),
+           let combo = try? JSONDecoder().decode(KeyCombination.self, from: data) {
+            self.screenshotKeyCombination = combo
+        } else {
+            self.screenshotKeyCombination = KeyCombination.defaultScreenshot
+        }
+
+        if let data = defaults.data(forKey: "activeWindowKeyCombination"),
+           let combo = try? JSONDecoder().decode(KeyCombination.self, from: data) {
+            self.activeWindowKeyCombination = combo
+        } else {
+            self.activeWindowKeyCombination = KeyCombination.defaultActiveWindow
+        }
+
+        self.autoOpenEditor = defaults.object(forKey: "autoOpenEditor") == nil ? true : defaults.bool(forKey: "autoOpenEditor")
+        self.playShutterSound = defaults.object(forKey: "playShutterSound") == nil ? true : defaults.bool(forKey: "playShutterSound")
+        self.enableSmartDistance = defaults.object(forKey: "enableSmartDistance") == nil ? true : defaults.bool(forKey: "enableSmartDistance")
+        self.gridAuditUnit = defaults.object(forKey: "gridAuditUnit") == nil ? 4 : defaults.integer(forKey: "gridAuditUnit")
 
         if let data = defaults.data(forKey: "ocrKeyCombination"),
            let combo = try? JSONDecoder().decode(KeyCombination.self, from: data) {

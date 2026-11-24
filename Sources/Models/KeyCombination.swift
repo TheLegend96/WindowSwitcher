@@ -4,6 +4,8 @@ public struct KeyCombination: Codable, Equatable {
     public var keyCode: UInt16
     public var modifiers: UInt // NSEvent.ModifierFlags rawValue
 
+    public static let defaultScreenshot = KeyCombination(keyCode: 1, modifiers: NSEvent.ModifierFlags.option.rawValue) // ⌥S
+    public static let defaultActiveWindow = KeyCombination(keyCode: 1, modifiers: NSEvent.ModifierFlags([.option, .shift]).rawValue) // ⌥⇧S
     public static let defaultOCR = KeyCombination(keyCode: 13, modifiers: NSEvent.ModifierFlags.option.rawValue) // ⌥W
     public static let alternativeOCR = KeyCombination(keyCode: 17, modifiers: NSEvent.ModifierFlags.option.rawValue) // ⌥T
     public static let empty = KeyCombination(keyCode: 65535, modifiers: 0)
