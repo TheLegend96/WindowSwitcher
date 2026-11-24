@@ -778,19 +778,21 @@ public struct SettingsView: View {
             }
 
             // Annotation Toolkit Overview
-            VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: 8) {
                 Text("Designer Studio Tool Shortcuts")
                     .font(.system(size: 13, weight: .semibold))
 
-                VStack(spacing: 8) {
-                    shortcutRow(keys: ["D"], description: "Smart Dimension Line (|<--- 24px --->|)")
-                    shortcutRow(keys: ["A"], description: "Curved / Straight Callout Arrow")
-                    shortcutRow(keys: ["N"], description: "Numbered QA Bug / Step Pin (①, ②, ③)")
-                    shortcutRow(keys: ["R"], description: "Component Bounding Box (width × height)")
-                    shortcutRow(keys: ["T"], description: "Text Callout Note")
-                    shortcutRow(keys: ["B"], description: "Redaction Blur / Pixelate Box")
-                    shortcutRow(keys: ["Tab"], description: "Copy hovered pixel hex color directly to clipboard")
-                    shortcutRow(keys: ["⌘", "C"], description: "Copy flattened annotated image to clipboard")
+                VStack(spacing: 6) {
+                    shortcutRow(keys: ["D"], description: "Smart Dimension Ruler (Strict H/V + UI Edge Snap)")
+                    shortcutRow(keys: ["⌥ Hover"], description: "Live Pixel Distance Preview across buttons & gaps")
+                    shortcutRow(keys: ["Scroll", "Pinch"], description: "Zoom in/out anchored on cursor (Space+Drag to pan)")
+                    shortcutRow(keys: ["A"], description: "Callout Arrow")
+                    shortcutRow(keys: ["N"], description: "Numbered QA Pin (①, ②, ③)")
+                    shortcutRow(keys: ["R"], description: "Component Bounding Box (width × height px)")
+                    shortcutRow(keys: ["T"], description: "Text Callout Note (double-click to edit)")
+                    shortcutRow(keys: ["B"], description: "Mosaic Redaction Blur Box")
+                    shortcutRow(keys: ["Tab"], description: "Copy hovered Hex color • ⇧Tab measures WCAG Contrast")
+                    shortcutRow(keys: ["⌘", "Z"], description: "Undo • ⌘⇧Z Redo • ⌘C Copy Annotated Image")
                 }
             }
         }

@@ -83,6 +83,11 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
                         .font: NSFont.systemFont(ofSize: 24, weight: .bold),
                         .foregroundColor: NSColor.labelColor
                     ])
+                    let secret = "TOKEN: sk_live_98123_redacted" as NSString
+                    secret.draw(at: NSPoint(x: 530, y: 44), withAttributes: [
+                        .font: NSFont.monospacedSystemFont(ofSize: 13, weight: .semibold),
+                        .foregroundColor: NSColor.labelColor
+                    ])
                     return true
                 }
                 ScreenshotEditorWindowController.shared.show(image: image, sourceRect: NSRect(origin: .zero, size: size))
