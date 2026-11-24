@@ -611,10 +611,10 @@ public struct SettingsView: View {
                     .font(.system(size: 13, weight: .semibold))
 
                 VStack(spacing: 0) {
-                    // Row 1: Area Screenshot
+                    // Row 1: Unified Area & Window Capture with Freeze Frame & Apple Shadow
                     shortcutTableRow(
-                        title: "Area screenshot & annotation",
-                        description: "Select custom screen area and open in Designer Studio",
+                        title: "Screenshot & Designer Studio",
+                        description: "Freezes screen. Drag area or click any window to capture with Apple drop shadow",
                         targetId: "screenshot",
                         combination: $settings.screenshotKeyCombination,
                         defaultCombo: .defaultScreenshot,
@@ -623,19 +623,7 @@ public struct SettingsView: View {
 
                     Divider().padding(.horizontal, 12)
 
-                    // Row 2: Active Window Screenshot
-                    shortcutTableRow(
-                        title: "Active window screenshot",
-                        description: "Capture the currently focused window with native shadow",
-                        targetId: "activeWindow",
-                        combination: $settings.activeWindowKeyCombination,
-                        defaultCombo: .defaultActiveWindow,
-                        onTry: { ScreenshotCoordinator.shared.captureActiveWindow() }
-                    )
-
-                    Divider().padding(.horizontal, 12)
-
-                    // Row 3: Screen Text Recognition (OCR)
+                    // Row 2: Screen Text Recognition (OCR)
                     shortcutTableRow(
                         title: "Instant screen text recognition (OCR)",
                         description: "Extract text from images, format paragraphs, and cut line breaks",

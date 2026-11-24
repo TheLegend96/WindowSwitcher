@@ -81,6 +81,7 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
                     return true
                 }
                 ScreenshotEditorWindowController.shared.show(image: image, sourceRect: NSRect(origin: .zero, size: size))
+                ScreenshotEditorWindowController.shared.addSampleAnnotationsForTesting()
             }
         }
         DistributedNotificationCenter.default().addObserver(forName: NSNotification.Name("com.custom.windowswitcher.openSettings"), object: nil, queue: .main) { [weak self] notif in
