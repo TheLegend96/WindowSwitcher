@@ -30,6 +30,7 @@ macOS Command-Tab switches between *entire applications*, not individual windows
 
 **Window Switcher solves this.** It brings true window-by-window switching to your Mac with:
 - **Individual Window Targeting**: Jump directly to any open document, tab, or editor instantly.
+- **Shottr-Style Screen Text Recognition (OCR)**: Press `⌥ Option + W` (or customizable trigger) to drag a selection box on your active screen and copy text from any application, image, or video directly to your clipboard.
 - **Authentic Apple Liquid Glass HUD**: Built with native macOS system materials, subtle specular light-catch borders, and smooth continuous squircle curvature.
 - **Hardware-Accelerated 60 FPS Previews**: Powered by Apple’s ScreenCaptureKit engine directly on the GPU for zero-lag, instant visual updates.
 - **Search While Switching**: Simply start typing any word to immediately filter your open windows in real-time.
@@ -87,7 +88,8 @@ curl -fsSL https://raw.githubusercontent.com/TheLegend96/WindowSwitcher/main/ins
 | **Close a window directly** | Press `W` while highlighting any window card |
 | **Instant filter / search** | Type letters while the switcher is open (e.g. `Figma`, `Code`, `Safari`) |
 | **Navigate with arrows or mouse** | Use `←` / `→` arrow keys or hover and click with your trackpad |
-| **Cancel switcher** | Press `Esc` |
+| **Capture & copy screen text (OCR)** | Press `⌥ Option + W` (customizable) and drag a box |
+| **Cancel switcher / selection** | Press `Esc` |
 
 ---
 
@@ -99,6 +101,12 @@ curl -fsSL https://raw.githubusercontent.com/TheLegend96/WindowSwitcher/main/ins
 
 - **Customizable Appearance**: Choose between live window thumbnails, clean app icons, or compact text titles.
 - **Optics & Glass Craft**: Fine-tune background opacity, specular hairline highlights, corner curvature, and drop shadow depth.
+- **Screen OCR & Controls**: Customize your activation shortcut and text recognition hotkey with complete freedom.
+
+<p align="center">
+  <img src="docs/images/settings-controls.png" width="850" alt="Controls & Screen OCR Settings" />
+</p>
+
 - **Automatic In-App Updates**: Check for the latest releases directly from Settings with one click.
 
 <p align="center">

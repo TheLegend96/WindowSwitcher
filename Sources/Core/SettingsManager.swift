@@ -66,6 +66,16 @@ public enum ShortcutTrigger: String, CaseIterable, Identifiable {
     public var id: String { rawValue }
 }
 
+public enum OCRShortcutTrigger: String, CaseIterable, Identifiable {
+    case optionW = "⌥ Option + W"
+    case optionT = "⌥ Option + T"
+    case shiftOptionW = "⇧ Shift + ⌥ Option + W"
+    case shiftOptionT = "⇧ Shift + ⌥ Option + T"
+    case disabled = "Disabled"
+
+    public var id: String { rawValue }
+}
+
 public struct AppException: Codable, Identifiable, Hashable {
     public var id: String { bundleId }
     public var name: String
@@ -113,6 +123,9 @@ public class SettingsManager: ObservableObject {
     // MARK: - Controls & Filtering
     @Published public var primaryShortcut: ShortcutTrigger {
         didSet { defaults.set(primaryShortcut.rawValue, forKey: "primaryShortcut") }
+    }
+    @Published public var ocrShortcut: OCRShortcutTrigger {
+        didSet { defaults.set(ocrShortcut.rawValue, forKey: "ocrShortcut") }
     }
     @Published public var secondaryShortcut: String {
         didSet { defaults.set(secondaryShortcut, forKey: "secondaryShortcut") }
@@ -260,6 +273,9 @@ public class SettingsManager: ObservableObject {
         let shortcutStr = defaults.string(forKey: "primaryShortcut") ?? ShortcutTrigger.commandTab.rawValue
         self.primaryShortcut = ShortcutTrigger(rawValue: shortcutStr) ?? .commandTab
         self.secondaryShortcut = defaults.string(forKey: "secondaryShortcut") ?? "⌥ + `"
+
+        let ocrStr = defaults.string(forKey: "ocrShortcut") ?? OCRShortcutTrigger.optionW.rawValue
+        self.ocrShortcut = OCRShortcutTrigger(rawValue: ocrStr) ?? .optionW
 
         self.appsFilter = defaults.string(forKey: "appsFilter") ?? "All apps"
         self.spacesFilter = defaults.string(forKey: "spacesFilter") ?? "All Spaces"

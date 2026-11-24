@@ -583,6 +583,62 @@ public struct SettingsView: View {
 
             Divider()
 
+            // Screen Text Recognition (OCR) Shottr-Style Utility
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        HStack(spacing: 6) {
+                            Text("Screen Text Recognition (OCR)")
+                                .font(.system(size: 13, weight: .semibold))
+                            Text("Shottr Style")
+                                .font(.system(size: 9.5, weight: .bold))
+                                .foregroundColor(settings.accentColor)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(settings.accentColor.opacity(0.12))
+                                .clipShape(Capsule())
+                        }
+                        Text("Drag a selection box on your active screen to copy text from any application or image.")
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondary)
+                    }
+                    Spacer()
+                    Button("Try Text Recognition") {
+                        ScreenOCRCoordinator.shared.startSelection()
+                    }
+                    .controlSize(.small)
+                }
+
+                HStack(spacing: 8) {
+                    ForEach(OCRShortcutTrigger.allCases) { trigger in
+                        let isSelected = settings.ocrShortcut == trigger
+                        Button(action: {
+                            settings.ocrShortcut = trigger
+                        }) {
+                            HStack(spacing: 6) {
+                                Image(systemName: isSelected ? "largecircle.fill.circle" : "circle")
+                                    .font(.system(size: 12))
+                                    .foregroundColor(isSelected ? settings.accentColor : .secondary)
+                                Text(trigger.rawValue)
+                                    .font(.system(size: 11.5, weight: isSelected ? .semibold : .regular))
+                                    .foregroundColor(isSelected ? .primary : .secondary)
+                            }
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 7)
+                            .background(isSelected ? settings.accentColor.opacity(0.08) : Color.primary.opacity(0.02))
+                            .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                    .stroke(isSelected ? settings.accentColor.opacity(0.4) : Color.primary.opacity(0.08), lineWidth: 1)
+                            )
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+
+            Divider()
+
             // Quick Navigation Shortcuts Cheat Sheet
             VStack(alignment: .leading, spacing: 10) {
                 Text("Keyboard Navigation While Switcher is Open")

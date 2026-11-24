@@ -41,6 +41,7 @@ swiftc -O \
     -framework ServiceManagement \
     -framework Metal \
     -framework CoreImage \
+    -framework Vision \
     -o "$MACOS/$APP_NAME" \
     $SOURCES
 

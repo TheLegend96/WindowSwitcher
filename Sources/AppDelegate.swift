@@ -56,6 +56,11 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.openOnboarding()
             }
         }
+        DistributedNotificationCenter.default().addObserver(forName: NSNotification.Name("com.custom.windowswitcher.triggerOCR"), object: nil, queue: .main) { _ in
+            Task { @MainActor in
+                ScreenOCRCoordinator.shared.startSelection()
+            }
+        }
         DistributedNotificationCenter.default().addObserver(forName: NSNotification.Name("com.custom.windowswitcher.openSettings"), object: nil, queue: .main) { [weak self] notif in
             let tabName = notif.userInfo?["tab"] as? String ?? (notif.object as? String ?? "")
             Task { @MainActor in
@@ -93,6 +98,9 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
 
         let menu = NSMenu()
         menu.addItem(NSMenuItem(title: "Trigger Switcher", action: #selector(triggerSwitcher), keyEquivalent: ""))
+        let ocrItem = NSMenuItem(title: "Capture Text from Screen...", action: #selector(captureTextFromScreen), keyEquivalent: "w")
+        ocrItem.keyEquivalentModifierMask = [.option]
+        menu.addItem(ocrItem)
         menu.addItem(NSMenuItem.separator())
         menu.addItem(NSMenuItem(title: "Check for Updates...", action: #selector(checkForUpdatesAction), keyEquivalent: "u"))
         menu.addItem(NSMenuItem(title: "Welcome & Setup Guide...", action: #selector(openOnboarding), keyEquivalent: ""))
@@ -212,6 +220,12 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc public func triggerSwitcher() {
         SwitcherState.shared.show()
+    }
+
+    @objc public func captureTextFromScreen() {
+        Task { @MainActor in
+            ScreenOCRCoordinator.shared.startSelection()
+        }
     }
 
     @objc public func checkForUpdatesAction() {

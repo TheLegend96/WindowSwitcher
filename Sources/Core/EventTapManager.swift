@@ -21,6 +21,11 @@ public class EventTapManager {
         return ShortcutTrigger(rawValue: raw) ?? .commandTab
     }
 
+    private var currentOCRTrigger: OCRShortcutTrigger {
+        let raw = UserDefaults.standard.string(forKey: "ocrShortcut") ?? OCRShortcutTrigger.optionW.rawValue
+        return OCRShortcutTrigger(rawValue: raw) ?? .optionW
+    }
+
     public var isListening: Bool {
         return eventTap != nil || globalMonitor != nil
     }
@@ -107,9 +112,36 @@ public class EventTapManager {
     private func handleGlobalNSEvent(_ event: NSEvent) {
         let isCmdHeld = event.modifierFlags.contains(.command)
         let isAltHeld = event.modifierFlags.contains(.option)
+        let isShiftHeld = event.modifierFlags.contains(.shift)
+        let isCtrlHeld = event.modifierFlags.contains(.control)
         let primary = currentTrigger
 
         if !isSwitcherActive {
+            // OCR Shortcut handling in Global Monitor
+            if event.type == .keyDown {
+                let ocr = currentOCRTrigger
+                var ocrTriggered = false
+                switch ocr {
+                case .optionW:
+                    if event.keyCode == 13 && isAltHeld && !isCmdHeld && !isShiftHeld && !isCtrlHeld { ocrTriggered = true }
+                case .optionT:
+                    if event.keyCode == 17 && isAltHeld && !isCmdHeld && !isShiftHeld && !isCtrlHeld { ocrTriggered = true }
+                case .shiftOptionW:
+                    if event.keyCode == 13 && isAltHeld && !isCmdHeld && isShiftHeld && !isCtrlHeld { ocrTriggered = true }
+                case .shiftOptionT:
+                    if event.keyCode == 17 && isAltHeld && !isCmdHeld && isShiftHeld && !isCtrlHeld { ocrTriggered = true }
+                case .disabled:
+                    ocrTriggered = false
+                }
+
+                if ocrTriggered {
+                    DispatchQueue.main.async {
+                        ScreenOCRCoordinator.shared.startSelection()
+                    }
+                    return
+                }
+            }
+
             if event.type == .keyDown && event.keyCode == 48 { // Tab
                 switch primary {
                 case .commandTab:
@@ -162,6 +194,7 @@ public class EventTapManager {
         let isCmdHeld = flags.contains(.maskCommand)
         let isAltHeld = flags.contains(.maskAlternate)
         let isShiftHeld = flags.contains(.maskShift)
+        let isCtrlHeld = flags.contains(.maskControl)
 
         // When Switcher is VISIBLE
         if isSwitcherActive {
@@ -267,7 +300,33 @@ public class EventTapManager {
                 }
             }
         } else {
-            // When Switcher is NOT visible: ONLY trigger the one shortcut selected by the user
+            // When Switcher is NOT visible:
+            // 1. Text Recognition (OCR) Screen Trigger
+            if type == .keyDown {
+                let ocr = currentOCRTrigger
+                var ocrTriggered = false
+                switch ocr {
+                case .optionW:
+                    if keyCode == 13 && isAltHeld && !isCmdHeld && !isShiftHeld && !isCtrlHeld { ocrTriggered = true }
+                case .optionT:
+                    if keyCode == 17 && isAltHeld && !isCmdHeld && !isShiftHeld && !isCtrlHeld { ocrTriggered = true }
+                case .shiftOptionW:
+                    if keyCode == 13 && isAltHeld && !isCmdHeld && isShiftHeld && !isCtrlHeld { ocrTriggered = true }
+                case .shiftOptionT:
+                    if keyCode == 17 && isAltHeld && !isCmdHeld && isShiftHeld && !isCtrlHeld { ocrTriggered = true }
+                case .disabled:
+                    ocrTriggered = false
+                }
+
+                if ocrTriggered {
+                    DispatchQueue.main.async {
+                        ScreenOCRCoordinator.shared.startSelection()
+                    }
+                    return nil // Intercept key event so special characters (like ∑ or †) are not typed
+                }
+            }
+
+            // 2. Window Switcher Trigger
             if type == .keyDown && keyCode == 48 { // Tab
                 let primary = currentTrigger
                 switch primary {
