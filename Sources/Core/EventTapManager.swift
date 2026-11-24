@@ -21,9 +21,14 @@ public class EventTapManager {
         return ShortcutTrigger(rawValue: raw) ?? .commandTab
     }
 
-    private var currentOCRTrigger: OCRShortcutTrigger {
-        let raw = UserDefaults.standard.string(forKey: "ocrShortcut") ?? OCRShortcutTrigger.optionW.rawValue
-        return OCRShortcutTrigger(rawValue: raw) ?? .optionW
+    private var currentOCRShortcut: KeyCombination {
+        if let data = UserDefaults.standard.data(forKey: "ocrKeyCombination"),
+           let combo = try? JSONDecoder().decode(KeyCombination.self, from: data) {
+            return combo
+        }
+        let code = UserDefaults.standard.object(forKey: "ocrKeyCode") != nil ? UInt16(UserDefaults.standard.integer(forKey: "ocrKeyCode")) : KeyCombination.defaultOCR.keyCode
+        let mods = UserDefaults.standard.object(forKey: "ocrModifiers") != nil ? UInt(UserDefaults.standard.integer(forKey: "ocrModifiers")) : KeyCombination.defaultOCR.modifiers
+        return KeyCombination(keyCode: code, modifiers: mods)
     }
 
     public var isListening: Bool {
@@ -112,29 +117,12 @@ public class EventTapManager {
     private func handleGlobalNSEvent(_ event: NSEvent) {
         let isCmdHeld = event.modifierFlags.contains(.command)
         let isAltHeld = event.modifierFlags.contains(.option)
-        let isShiftHeld = event.modifierFlags.contains(.shift)
-        let isCtrlHeld = event.modifierFlags.contains(.control)
         let primary = currentTrigger
 
         if !isSwitcherActive {
             // OCR Shortcut handling in Global Monitor
             if event.type == .keyDown {
-                let ocr = currentOCRTrigger
-                var ocrTriggered = false
-                switch ocr {
-                case .optionW:
-                    if event.keyCode == 13 && isAltHeld && !isCmdHeld && !isShiftHeld && !isCtrlHeld { ocrTriggered = true }
-                case .optionT:
-                    if event.keyCode == 17 && isAltHeld && !isCmdHeld && !isShiftHeld && !isCtrlHeld { ocrTriggered = true }
-                case .shiftOptionW:
-                    if event.keyCode == 13 && isAltHeld && !isCmdHeld && isShiftHeld && !isCtrlHeld { ocrTriggered = true }
-                case .shiftOptionT:
-                    if event.keyCode == 17 && isAltHeld && !isCmdHeld && isShiftHeld && !isCtrlHeld { ocrTriggered = true }
-                case .disabled:
-                    ocrTriggered = false
-                }
-
-                if ocrTriggered {
+                if currentOCRShortcut.matches(nsFlags: event.modifierFlags, keyCode: event.keyCode) {
                     DispatchQueue.main.async {
                         ScreenOCRCoordinator.shared.startSelection()
                     }
@@ -194,7 +182,6 @@ public class EventTapManager {
         let isCmdHeld = flags.contains(.maskCommand)
         let isAltHeld = flags.contains(.maskAlternate)
         let isShiftHeld = flags.contains(.maskShift)
-        let isCtrlHeld = flags.contains(.maskControl)
 
         // When Switcher is VISIBLE
         if isSwitcherActive {
@@ -303,22 +290,7 @@ public class EventTapManager {
             // When Switcher is NOT visible:
             // 1. Text Recognition (OCR) Screen Trigger
             if type == .keyDown {
-                let ocr = currentOCRTrigger
-                var ocrTriggered = false
-                switch ocr {
-                case .optionW:
-                    if keyCode == 13 && isAltHeld && !isCmdHeld && !isShiftHeld && !isCtrlHeld { ocrTriggered = true }
-                case .optionT:
-                    if keyCode == 17 && isAltHeld && !isCmdHeld && !isShiftHeld && !isCtrlHeld { ocrTriggered = true }
-                case .shiftOptionW:
-                    if keyCode == 13 && isAltHeld && !isCmdHeld && isShiftHeld && !isCtrlHeld { ocrTriggered = true }
-                case .shiftOptionT:
-                    if keyCode == 17 && isAltHeld && !isCmdHeld && isShiftHeld && !isCtrlHeld { ocrTriggered = true }
-                case .disabled:
-                    ocrTriggered = false
-                }
-
-                if ocrTriggered {
+                if currentOCRShortcut.matches(cgFlags: flags, keyCode: keyCode) {
                     DispatchQueue.main.async {
                         ScreenOCRCoordinator.shared.startSelection()
                     }

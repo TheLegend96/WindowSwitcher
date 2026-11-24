@@ -83,6 +83,12 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.triggerSwitcher()
             }
         }
+        DistributedNotificationCenter.default().addObserver(forName: NSNotification.Name("com.custom.windowswitcher.testOCRToast"), object: nil, queue: .main) { notif in
+            let text = notif.userInfo?["text"] as? String ?? "Active Screen Targeting Only: •\nThe tool detects whichever display your mouse cursor is currently on and operates locally."
+            Task { @MainActor in
+                ToastHUDController.shared.showOCRToast(text: text)
+            }
+        }
         DistributedNotificationCenter.default().addObserver(forName: NSNotification.Name("com.custom.windowswitcher.dismissSwitcher"), object: nil, queue: .main) { _ in
             Task { @MainActor in
                 SwitcherState.shared.dismiss()

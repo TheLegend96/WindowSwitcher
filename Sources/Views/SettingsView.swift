@@ -30,6 +30,42 @@ public final class SettingsUIState: ObservableObject {
     @Published public var showAddExceptionSheet: Bool = false
     @Published public var newAppName: String = ""
     @Published public var newBundleId: String = ""
+
+    // Shortcut recording
+    @Published public var isRecordingOCRShortcut: Bool = false
+    public var ocrEventMonitor: Any? = nil
+
+    public func startRecordingOCR(onRecorded: @escaping (KeyCombination) -> Void) {
+        stopRecordingOCR()
+        isRecordingOCRShortcut = true
+
+        ocrEventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown]) { [weak self] event in
+            if event.keyCode == 53 { // Esc
+                self?.stopRecordingOCR()
+                return nil
+            }
+
+            let flags = event.modifierFlags.intersection([.command, .option, .control, .shift])
+            let rawFlags = flags.rawValue
+
+            if rawFlags != 0 && event.keyCode != 55 && event.keyCode != 58 && event.keyCode != 56 && event.keyCode != 59 {
+                let combo = KeyCombination(keyCode: event.keyCode, modifiers: rawFlags)
+                onRecorded(combo)
+                self?.stopRecordingOCR()
+                return nil
+            }
+
+            return event
+        }
+    }
+
+    public func stopRecordingOCR() {
+        if let monitor = ocrEventMonitor {
+            NSEvent.removeMonitor(monitor)
+            ocrEventMonitor = nil
+        }
+        isRecordingOCRShortcut = false
+    }
 }
 
 public struct SettingsView: View {
@@ -583,58 +619,48 @@ public struct SettingsView: View {
 
             Divider()
 
-            // Screen Text Recognition (OCR) Shottr-Style Utility
+            // Screen Text Recognition (OCR) Utility
             VStack(alignment: .leading, spacing: 10) {
-                HStack {
+                HStack(alignment: .center) {
                     VStack(alignment: .leading, spacing: 2) {
-                        HStack(spacing: 6) {
-                            Text("Screen Text Recognition (OCR)")
-                                .font(.system(size: 13, weight: .semibold))
-                            Text("Shottr Style")
-                                .font(.system(size: 9.5, weight: .bold))
-                                .foregroundColor(settings.accentColor)
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 2)
-                                .background(settings.accentColor.opacity(0.12))
-                                .clipShape(Capsule())
-                        }
+                        Text("Screen text recognition")
+                            .font(.system(size: 13, weight: .semibold))
                         Text("Drag a selection box on your active screen to copy text from any application or image.")
                             .font(.system(size: 11))
                             .foregroundColor(.secondary)
                     }
+
                     Spacer()
+
                     Button("Try Text Recognition") {
                         ScreenOCRCoordinator.shared.startSelection()
                     }
                     .controlSize(.small)
                 }
 
-                HStack(spacing: 8) {
-                    ForEach(OCRShortcutTrigger.allCases) { trigger in
-                        let isSelected = settings.ocrShortcut == trigger
-                        Button(action: {
-                            settings.ocrShortcut = trigger
-                        }) {
-                            HStack(spacing: 6) {
-                                Image(systemName: isSelected ? "largecircle.fill.circle" : "circle")
-                                    .font(.system(size: 12))
-                                    .foregroundColor(isSelected ? settings.accentColor : .secondary)
-                                Text(trigger.rawValue)
-                                    .font(.system(size: 11.5, weight: isSelected ? .semibold : .regular))
-                                    .foregroundColor(isSelected ? .primary : .secondary)
-                            }
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 7)
-                            .background(isSelected ? settings.accentColor.opacity(0.08) : Color.primary.opacity(0.02))
-                            .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 7, style: .continuous)
-                                    .stroke(isSelected ? settings.accentColor.opacity(0.4) : Color.primary.opacity(0.08), lineWidth: 1)
-                            )
-                        }
-                        .buttonStyle(.plain)
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Shortcut key combination")
+                            .font(.system(size: 12.5, weight: .medium))
+                        Text("Click the field to record your preferred keyboard shortcut.")
+                            .font(.system(size: 11))
+                            .foregroundColor(.secondary)
                     }
+
+                    Spacer()
+
+                    ShortcutRecorderField(
+                        keyCombination: $settings.ocrKeyCombination,
+                        defaultCombination: KeyCombination.defaultOCR
+                    )
                 }
+                .padding(12)
+                .background(Color.primary.opacity(0.03))
+                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .stroke(Color.primary.opacity(0.08), lineWidth: 1)
+                )
             }
 
             Divider()
@@ -1301,6 +1327,86 @@ public struct SettingsView: View {
                 ))
             }
             uiState.selectedExceptionId = bundleId
+        }
+    }
+}
+
+// MARK: - Interactive Apple HIG Shortcut Recorder Component
+private struct ShortcutRecorderField: View {
+    @ObservedObject var uiState = SettingsUIState.shared
+    @Binding var keyCombination: KeyCombination
+    let defaultCombination: KeyCombination
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Button(action: {
+                if uiState.isRecordingOCRShortcut {
+                    uiState.stopRecordingOCR()
+                } else {
+                    uiState.startRecordingOCR { newCombo in
+                        keyCombination = newCombo
+                    }
+                }
+            }) {
+                HStack(spacing: 5) {
+                    if uiState.isRecordingOCRShortcut {
+                        HStack(spacing: 6) {
+                            Circle()
+                                .fill(Color.blue)
+                                .frame(width: 6, height: 6)
+                            Text("Press shortcut keys…")
+                                .font(.system(size: 11.5, weight: .medium))
+                                .foregroundColor(.primary)
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 4)
+                    } else {
+                        HStack(spacing: 4) {
+                            ForEach(keyCombination.keycapTokens, id: \.self) { token in
+                                Text(token)
+                                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+                                    .foregroundColor(.primary)
+                                    .padding(.horizontal, 7)
+                                    .padding(.vertical, 3.5)
+                                    .background(Color(NSColor.controlBackgroundColor))
+                                    .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 4, style: .continuous)
+                                            .stroke(Color.primary.opacity(0.12), lineWidth: 1)
+                                    )
+                                    .shadow(color: Color.black.opacity(0.04), radius: 1, y: 0.5)
+                            }
+                        }
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 3)
+                    }
+                }
+                .frame(minWidth: 120, minHeight: 28)
+                .background(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(uiState.isRecordingOCRShortcut ? Color.blue.opacity(0.08) : Color.primary.opacity(0.03))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .stroke(uiState.isRecordingOCRShortcut ? Color.blue : Color.primary.opacity(0.12), lineWidth: uiState.isRecordingOCRShortcut ? 1.5 : 1)
+                )
+            }
+            .buttonStyle(.plain)
+
+            if keyCombination != defaultCombination {
+                Button(action: {
+                    uiState.stopRecordingOCR()
+                    keyCombination = defaultCombination
+                }) {
+                    Text("Reset")
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .onDisappear {
+            uiState.stopRecordingOCR()
         }
     }
 }

@@ -66,16 +66,6 @@ public enum ShortcutTrigger: String, CaseIterable, Identifiable {
     public var id: String { rawValue }
 }
 
-public enum OCRShortcutTrigger: String, CaseIterable, Identifiable {
-    case optionW = "⌥ Option + W"
-    case optionT = "⌥ Option + T"
-    case shiftOptionW = "⇧ Shift + ⌥ Option + W"
-    case shiftOptionT = "⇧ Shift + ⌥ Option + T"
-    case disabled = "Disabled"
-
-    public var id: String { rawValue }
-}
-
 public struct AppException: Codable, Identifiable, Hashable {
     public var id: String { bundleId }
     public var name: String
@@ -124,8 +114,14 @@ public class SettingsManager: ObservableObject {
     @Published public var primaryShortcut: ShortcutTrigger {
         didSet { defaults.set(primaryShortcut.rawValue, forKey: "primaryShortcut") }
     }
-    @Published public var ocrShortcut: OCRShortcutTrigger {
-        didSet { defaults.set(ocrShortcut.rawValue, forKey: "ocrShortcut") }
+    @Published public var ocrKeyCombination: KeyCombination {
+        didSet {
+            if let data = try? JSONEncoder().encode(ocrKeyCombination) {
+                defaults.set(data, forKey: "ocrKeyCombination")
+            }
+            defaults.set(Int(ocrKeyCombination.keyCode), forKey: "ocrKeyCode")
+            defaults.set(Int(ocrKeyCombination.modifiers), forKey: "ocrModifiers")
+        }
     }
     @Published public var secondaryShortcut: String {
         didSet { defaults.set(secondaryShortcut, forKey: "secondaryShortcut") }
@@ -274,8 +270,14 @@ public class SettingsManager: ObservableObject {
         self.primaryShortcut = ShortcutTrigger(rawValue: shortcutStr) ?? .commandTab
         self.secondaryShortcut = defaults.string(forKey: "secondaryShortcut") ?? "⌥ + `"
 
-        let ocrStr = defaults.string(forKey: "ocrShortcut") ?? OCRShortcutTrigger.optionW.rawValue
-        self.ocrShortcut = OCRShortcutTrigger(rawValue: ocrStr) ?? .optionW
+        if let data = defaults.data(forKey: "ocrKeyCombination"),
+           let combo = try? JSONDecoder().decode(KeyCombination.self, from: data) {
+            self.ocrKeyCombination = combo
+        } else {
+            let code = defaults.object(forKey: "ocrKeyCode") != nil ? UInt16(defaults.integer(forKey: "ocrKeyCode")) : KeyCombination.defaultOCR.keyCode
+            let mods = defaults.object(forKey: "ocrModifiers") != nil ? UInt(defaults.integer(forKey: "ocrModifiers")) : KeyCombination.defaultOCR.modifiers
+            self.ocrKeyCombination = KeyCombination(keyCode: code, modifiers: mods)
+        }
 
         self.appsFilter = defaults.string(forKey: "appsFilter") ?? "All apps"
         self.spacesFilter = defaults.string(forKey: "spacesFilter") ?? "All Spaces"

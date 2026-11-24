@@ -50,7 +50,7 @@ public class ScreenOCRCoordinator: NSObject {
                 // Match display corresponding to this screen
                 let screenNumber = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID
                 guard let display = content.displays.first(where: { $0.displayID == screenNumber }) ?? content.displays.first else {
-                    ToastHUDController.shared.showToast(message: "Could not access display", icon: "exclamationmark.triangle", on: screen)
+                    ToastHUDController.shared.showSimpleToast(message: "Could not access display", icon: "exclamationmark.triangle", on: screen)
                     return
                 }
 
@@ -76,14 +76,14 @@ public class ScreenOCRCoordinator: NSObject {
                 TextRecognitionService.shared.recognizeAndCopyText(from: capturedImage) { result in
                     if let result = result {
                         NSSound.beep()
-                        ToastHUDController.shared.showToast(message: result.summary, icon: "checkmark.circle.fill", on: screen)
+                        ToastHUDController.shared.showOCRToast(text: result.text, on: screen)
                     } else {
-                        ToastHUDController.shared.showToast(message: "No text found in selection", icon: "doc.text.magnifyingglass", on: screen)
+                        ToastHUDController.shared.showSimpleToast(message: "No text found in selection", icon: "doc.text.magnifyingglass", on: screen)
                     }
                 }
             } catch {
                 print("⚠️ OCR capture failed: \(error)")
-                ToastHUDController.shared.showToast(message: "Capture failed", icon: "xmark.circle", on: screen)
+                ToastHUDController.shared.showSimpleToast(message: "Capture failed", icon: "xmark.circle", on: screen)
             }
         }
     }
