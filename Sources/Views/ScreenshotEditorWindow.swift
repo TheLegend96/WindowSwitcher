@@ -2,326 +2,46 @@ import AppKit
 import SwiftUI
 import CoreImage
 
-// MARK: - Annotation Tool Types
-public enum AnnotationTool: String, CaseIterable, Identifiable {
-    case pointer = "Pointer"
-    case distance = "Dimension"
-    case arrow = "Arrow"
-    case text = "Text"
-    case numberedPin = "Numbered Pin"
-    case rectangle = "Rectangle"
-    case roundedRect = "Card"
-    case pencil = "Highlighter"
-    case blur = "Blur"
-
-    public var id: String { rawValue }
-
-    public var icon: String {
-        switch self {
-        case .pointer: return "arrow.up.left"
-        case .distance: return "ruler"
-        case .arrow: return "arrow.up.right"
-        case .text: return "textformat"
-        case .numberedPin: return "1.circle"
-        case .rectangle: return "rectangle"
-        case .roundedRect: return "app"
-        case .pencil: return "pencil.tip"
-        case .blur: return "circle.lefthalf.filled"
-        }
-    }
-
-    public var tooltip: String {
-        switch self {
-        case .pointer: return "Select & Move (V)"
-        case .distance: return "Smart Dimension Ruler — Horizontal & Vertical Snapping (D)"
-        case .arrow: return "Callout Arrow (A)"
-        case .text: return "Text Callout (T) • Double-click note to edit"
-        case .numberedPin: return "Numbered QA Pin (N)"
-        case .rectangle: return "Component Box (R)"
-        case .roundedRect: return "Rounded Card (C)"
-        case .pencil: return "Highlighter (P)"
-        case .blur: return "Mosaic Redaction Blur (B)"
-        }
-    }
-}
-
-// MARK: - Designer Annotation Color Swatches
-public enum DesignerInk: String, CaseIterable, Identifiable {
-    case azure = "#0A84FF"
-    case coral = "#FF453A"
-    case amber = "#FF9F0A"
-    case emerald = "#30D158"
-
-    public var id: String { rawValue }
-
-    public var label: String {
-        switch self {
-        case .azure: return "Accent Blue"
-        case .coral: return "Error / Bug Red"
-        case .amber: return "Warning Amber"
-        case .emerald: return "Verified Green"
-        }
-    }
-
-    public var nsColor: NSColor {
-        switch self {
-        case .azure: return NSColor(red: 10/255, green: 132/255, blue: 255/255, alpha: 1.0)
-        case .coral: return NSColor(red: 255/255, green: 69/255, blue: 58/255, alpha: 1.0)
-        case .amber: return NSColor(red: 255/255, green: 159/255, blue: 10/255, alpha: 1.0)
-        case .emerald: return NSColor(red: 48/255, green: 209/255, blue: 88/255, alpha: 1.0)
-        }
-    }
-
-    public var swiftUIColor: Color { Color(nsColor) }
-}
-
-// MARK: - Vector Annotation Primitive
-public struct CanvasAnnotation: Identifiable, Equatable {
-    public let id = UUID()
-    public var tool: AnnotationTool
-    public var startPoint: CGPoint        // In image point coordinates (0,0 = top-left)
-    public var endPoint: CGPoint          // In image point coordinates
-    public var pathPoints: [CGPoint] = [] // For freehand pencil
-    public var text: String = ""
-    public var number: Int = 1
-    public var color: NSColor = DesignerInk.azure.nsColor
-
-    public static func == (lhs: CanvasAnnotation, rhs: CanvasAnnotation) -> Bool {
-        lhs.id == rhs.id &&
-        lhs.startPoint == rhs.startPoint &&
-        lhs.endPoint == rhs.endPoint &&
-        lhs.text == rhs.text &&
-        lhs.number == rhs.number &&
-        lhs.pathPoints == rhs.pathPoints
-    }
-}
-
-// MARK: - Fast sRGB Pixel & UI Edge Inspection Buffer
-public final class PixelInspectBuffer {
-    public let pixelsWide: Int
-    public let pixelsHigh: Int
-    public let imagePointSize: CGSize
-    private let bytesPerRow: Int
-    private let rgba: [UInt8]
-
-    public init?(image: NSImage) {
-        guard let cg = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return nil }
-        let w = max(1, cg.width)
-        let h = max(1, cg.height)
-        let bpr = w * 4
-        var buffer = [UInt8](repeating: 0, count: h * bpr)
-
-        let colorSpace = CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB()
-        guard let ctx = CGContext(
-            data: &buffer,
-            width: w,
-            height: h,
-            bitsPerComponent: 8,
-            bytesPerRow: bpr,
-            space: colorSpace,
-            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-        ) else { return nil }
-
-        ctx.draw(cg, in: CGRect(x: 0, y: 0, width: w, height: h))
-
-        self.pixelsWide = w
-        self.pixelsHigh = h
-        self.imagePointSize = image.size
-        self.bytesPerRow = bpr
-        self.rgba = buffer
-    }
-
-    private var scaleX: CGFloat {
-        imagePointSize.width > 0 ? CGFloat(pixelsWide) / imagePointSize.width : 1.0
-    }
-    private var scaleY: CGFloat {
-        imagePointSize.height > 0 ? CGFloat(pixelsHigh) / imagePointSize.height : 1.0
-    }
-
-    @inline(__always)
-    public func pixelRGBA(bx: Int, by: Int) -> (r: Int, g: Int, b: Int, a: Int) {
-        let cx = max(0, min(pixelsWide - 1, bx))
-        let cy = max(0, min(pixelsHigh - 1, by))
-        let offset = cy * bytesPerRow + cx * 4
-        let r = Int(rgba[offset])
-        let g = Int(rgba[offset + 1])
-        let b = Int(rgba[offset + 2])
-        let a = Int(rgba[offset + 3])
-        if a > 0 && a < 255 {
-            // Un-premultiply for crisp color matching near rounded corners
-            return (min(255, (r * 255) / a), min(255, (g * 255) / a), min(255, (b * 255) / a), a)
-        }
-        return (r, g, b, a)
-    }
-
-    public func sampleColor(at imagePt: CGPoint) -> (r: Int, g: Int, b: Int, hex: String)? {
-        let bx = Int(round(imagePt.x * scaleX))
-        let by = Int(round(imagePt.y * scaleY))
-        guard bx >= 0 && bx < pixelsWide && by >= 0 && by < pixelsHigh else { return nil }
-        let (r, g, b, _) = pixelRGBA(bx: bx, by: by)
-        let hex = String(format: "#%02X%02X%02X", r, g, b)
-        return (r, g, b, hex)
-    }
-
-    /// Computes WCAG 2.1 luminance contrast ratio between two hex colors (1.0...21.0).
-    public static func contrastRatio(hex1: String, hex2: String) -> Double? {
-        guard let c1 = parseHex(hex1), let c2 = parseHex(hex2) else { return nil }
-        let l1 = relativeLuminance(r: c1.r, g: c1.g, b: c1.b)
-        let l2 = relativeLuminance(r: c2.r, g: c2.g, b: c2.b)
-        let bright = max(l1, l2)
-        let dark = min(l1, l2)
-        return (bright + 0.05) / (dark + 0.05)
-    }
-
-    private static func parseHex(_ hex: String) -> (r: Int, g: Int, b: Int)? {
-        let cleaned = hex.trimmingCharacters(in: CharacterSet(charactersIn: "#"))
-        guard cleaned.count == 6, let val = Int(cleaned, radix: 16) else { return nil }
-        return ((val >> 16) & 0xFF, (val >> 8) & 0xFF, val & 0xFF)
-    }
-
-    private static func relativeLuminance(r: Int, g: Int, b: Int) -> Double {
-        func lin(_ channel: Int) -> Double {
-            let v = Double(channel) / 255.0
-            return v <= 0.03928 ? v / 12.92 : pow((v + 0.055) / 1.055, 2.4)
-        }
-        return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b)
-    }
-
-    // MARK: - Smart UI Contrast Edge Snapping & Raycast
-    @inline(__always)
-    private func isEdge(bx1: Int, by1: Int, bx2: Int, by2: Int, threshold: Int = 28) -> Bool {
-        let c1 = pixelRGBA(bx: bx1, by: by1)
-        let c2 = pixelRGBA(bx: bx2, by: by2)
-        let diff = abs(c1.r - c2.r) + abs(c1.g - c2.g) + abs(c1.b - c2.b) + abs(c1.a - c2.a)
-        return diff >= threshold
-    }
-
-    /// Searches ±radiusPt along the horizontal or vertical axis for the sharpest UI contrast transition edge.
-    public func snapCoordinate(near imagePt: CGPoint, horizontal: Bool, searchRadiusPt: CGFloat = 9.0) -> CGFloat? {
-        let sy = scaleY
-        let sx = scaleX
-        let fixedCoord = horizontal ? Int(round(imagePt.y * sy)) : Int(round(imagePt.x * sx))
-        let centerCoord = horizontal ? Int(round(imagePt.x * sx)) : Int(round(imagePt.y * sy))
-        let radiusPx = Int(round(searchRadiusPt * (horizontal ? sx : sy)))
-        let maxBound = horizontal ? pixelsWide - 2 : pixelsHigh - 2
-
-        var bestSignedOffset = Int.max
-        var minDist = Int.max
-        var maxDiff = 0
-
-        for offset in -radiusPx...radiusPx {
-            let pos = centerCoord + offset
-            guard pos >= 1 && pos < maxBound else { continue }
-            let cPrev = horizontal ? pixelRGBA(bx: pos - 1, by: fixedCoord) : pixelRGBA(bx: fixedCoord, by: pos - 1)
-            let cCurr = horizontal ? pixelRGBA(bx: pos, by: fixedCoord) : pixelRGBA(bx: fixedCoord, by: pos)
-            let diff = abs(cCurr.r - cPrev.r) + abs(cCurr.g - cPrev.g) + abs(cCurr.b - cPrev.b) + abs(cCurr.a - cPrev.a)
-            if diff >= 32 {
-                let d = abs(offset)
-                if d < minDist || (d == minDist && diff > maxDiff) {
-                    minDist = d
-                    maxDiff = diff
-                    bestSignedOffset = offset
-                }
-            }
-        }
-
-        guard bestSignedOffset != Int.max else { return nil }
-        let targetPx = centerCoord + bestSignedOffset
-        return CGFloat(targetPx) / (horizontal ? sx : sy)
-    }
-
-    public struct SmartSpan {
-        public let originPt: CGPoint
-        public let leftX: CGFloat
-        public let rightX: CGFloat
-        public let topY: CGFloat
-        public let bottomY: CGFloat
-
-        public var horizontalDistance: Int { Int(round(abs(rightX - leftX))) }
-        public var verticalDistance: Int { Int(round(abs(bottomY - topY))) }
-    }
-
-    /// Raycasts left, right, up, down from `imagePt` to detect surrounding button, card, or spacing boundaries.
-    public func raycastSpan(at imagePt: CGPoint, maxScanPt: CGFloat = 650.0) -> SmartSpan? {
-        let cx = Int(round(imagePt.x * scaleX))
-        let cy = Int(round(imagePt.y * scaleY))
-        guard cx >= 1 && cx < pixelsWide - 1 && cy >= 1 && cy < pixelsHigh - 1 else { return nil }
-
-        let base = pixelRGBA(bx: cx, by: cy)
-        let maxPxH = Int(maxScanPt * scaleX)
-        let maxPxV = Int(maxScanPt * scaleY)
-        let edgeThresh = 30
-
-        func deviates(_ c: (r: Int, g: Int, b: Int, a: Int)) -> Bool {
-            abs(c.r - base.r) + abs(c.g - base.g) + abs(c.b - base.b) + abs(c.a - base.a) >= edgeThresh
-        }
-
-        // Left ray
-        var leftPx = cx
-        for step in 1...maxPxH {
-            let tx = cx - step
-            if tx <= 0 { leftPx = 0; break }
-            if deviates(pixelRGBA(bx: tx, by: cy)) { leftPx = tx + 1; break }
-            leftPx = tx
-        }
-
-        // Right ray
-        var rightPx = cx
-        for step in 1...maxPxH {
-            let tx = cx + step
-            if tx >= pixelsWide - 1 { rightPx = pixelsWide - 1; break }
-            if deviates(pixelRGBA(bx: tx, by: cy)) { rightPx = tx; break }
-            rightPx = tx
-        }
-
-        // Up ray (decreasing Y in top-left image space)
-        var topPx = cy
-        for step in 1...maxPxV {
-            let ty = cy - step
-            if ty <= 0 { topPx = 0; break }
-            if deviates(pixelRGBA(bx: cx, by: ty)) { topPx = ty + 1; break }
-            topPx = ty
-        }
-
-        // Down ray (increasing Y)
-        var bottomPx = cy
-        for step in 1...maxPxV {
-            let ty = cy + step
-            if ty >= pixelsHigh - 1 { bottomPx = pixelsHigh - 1; break }
-            if deviates(pixelRGBA(bx: cx, by: ty)) { bottomPx = ty; break }
-            bottomPx = ty
-        }
-
-        return SmartSpan(
-            originPt: imagePt,
-            leftX: CGFloat(leftPx) / scaleX,
-            rightX: CGFloat(rightPx) / scaleX,
-            topY: CGFloat(topPx) / scaleY,
-            bottomY: CGFloat(bottomPx) / scaleY
-        )
-    }
-}
-
 // MARK: - Editor Observable State
 @MainActor
 public final class ScreenshotEditorState: ObservableObject {
     @Published public var currentTool: AnnotationTool = .distance
-    @Published public var activeInk: DesignerInk = .azure
     @Published public var annotations: [CanvasAnnotation] = []
     @Published public var canUndo: Bool = false
     @Published public var canRedo: Bool = false
     @Published public var isPinned: Bool = false
 
+    // Per-tool Persistent Style Defaults
+    @Published public var arrowColor: NSColor = .white
+    @Published public var arrowWidth: CGFloat = 4.5
+    @Published public var arrowStyle: ArrowStyle = .tapered
+
+    @Published public var textColor: NSColor = .white
+    @Published public var textSize: CGFloat = 16.0
+    @Published public var textStyle: TextStyle = .quoteBubble
+
+    @Published public var rectColor: NSColor = NSColor(red: 10/255, green: 132/255, blue: 255/255, alpha: 1.0)
+    @Published public var rectWidth: CGFloat = 2.5
+    @Published public var rectFillMode: RectFillMode = .stroke
+    @Published public var rectCornerRadius: CGFloat = 0.0
+    @Published public var rectShowSizeTag: Bool = false
+
+    @Published public var rulerColor: NSColor = NSColor(red: 10/255, green: 132/255, blue: 255/255, alpha: 1.0)
+    @Published public var pinColor: NSColor = NSColor(red: 255/255, green: 69/255, blue: 58/255, alpha: 1.0)
+    @Published public var highlighterColor: NSColor = NSColor(red: 255/255, green: 159/255, blue: 10/255, alpha: 1.0)
+    @Published public var highlighterWidth: CGFloat = 14.0
+
+    // Telemetry & Viewport
     @Published public var hoveredHexColor: String = "#0A84FF"
     @Published public var pinnedBgHexColor: String? = nil
-
-    @Published public var zoomScale: CGFloat = 1.0           // Multiplier relative to initial fit scale
+    @Published public var zoomScale: CGFloat = 1.0
     @Published public var effectiveDisplayScale: CGFloat = 1.0
     @Published public var panOffset: CGPoint = .zero
     @Published public var isSpacePanning: Bool = false
 
     @Published public var nextPinNumber: Int = 1
     @Published public var selectedAnnotationIndex: Int? = nil
+    @Published public var isColorPopoverOpen: Bool = false
 
     public var image: NSImage?
     public var imageSize: CGSize = .zero      // Logical points (CSS px)
@@ -330,8 +50,9 @@ public final class ScreenshotEditorState: ObservableObject {
 
     private var undoHistory: [[CanvasAnnotation]] = []
     private var redoHistory: [[CanvasAnnotation]] = []
+    private var propertyEditUndoToken: Date? = nil
 
-    // Action hooks triggered from both toolbar & keyboard shortcuts
+    // Action hooks wired to Canvas & Window
     public var onRequestCopy: (() -> Void)?
     public var onRequestSave: (() -> Void)?
     public var onRequestTogglePin: (() -> Void)?
@@ -358,6 +79,17 @@ public final class ScreenshotEditorState: ObservableObject {
         redoHistory.removeAll()
         canUndo = !undoHistory.isEmpty
         canRedo = false
+    }
+
+    public func beginPropertyEditUndoIfNeeded() {
+        guard selectedAnnotationIndex != nil else { return }
+        let now = Date()
+        if let last = propertyEditUndoToken, now.timeIntervalSince(last) < 0.35 {
+            propertyEditUndoToken = now
+            return
+        }
+        propertyEditUndoToken = now
+        pushUndoSnapshot()
     }
 
     public func addAnnotation(_ ann: CanvasAnnotation) {
@@ -405,6 +137,174 @@ public final class ScreenshotEditorState: ObservableObject {
         nextPinNumber = maxPin + 1
     }
 
+    // MARK: - Inspector Live Bindings & Mutators
+    public var currentArrowStyle: ArrowStyle {
+        if let idx = selectedAnnotationIndex, idx < annotations.count, annotations[idx].tool == .arrow {
+            return annotations[idx].arrowStyle
+        }
+        return arrowStyle
+    }
+
+    public var currentTextStyle: TextStyle {
+        if let idx = selectedAnnotationIndex, idx < annotations.count, annotations[idx].tool == .text {
+            return annotations[idx].textStyle
+        }
+        return textStyle
+    }
+
+    public var currentRectFillMode: RectFillMode {
+        if let idx = selectedAnnotationIndex, idx < annotations.count, annotations[idx].tool == .rectangle {
+            return annotations[idx].rectFillMode
+        }
+        return rectFillMode
+    }
+
+    public var currentRectCornerRadius: CGFloat {
+        if let idx = selectedAnnotationIndex, idx < annotations.count, annotations[idx].tool == .rectangle {
+            return annotations[idx].cornerRadius
+        }
+        return rectCornerRadius
+    }
+
+    public var currentRectShowSizeTag: Bool {
+        if let idx = selectedAnnotationIndex, idx < annotations.count, annotations[idx].tool == .rectangle {
+            return annotations[idx].showSizeTag
+        }
+        return rectShowSizeTag
+    }
+
+    public func activeInspectorColorBinding(for tool: AnnotationTool) -> Binding<NSColor> {
+        Binding(
+            get: { [weak self] in
+                guard let self else { return .white }
+                if let idx = self.selectedAnnotationIndex, idx < self.annotations.count {
+                    return self.annotations[idx].color
+                }
+                return self.defaultColor(for: tool)
+            },
+            set: { [weak self] newColor in
+                self?.applyColor(newColor, for: tool)
+            }
+        )
+    }
+
+    public func activeWidthBinding(for tool: AnnotationTool) -> Binding<CGFloat> {
+        Binding(
+            get: { [weak self] in
+                guard let self else { return 4.0 }
+                if let idx = self.selectedAnnotationIndex, idx < self.annotations.count {
+                    return self.annotations[idx].strokeWidth
+                }
+                return self.defaultWidth(for: tool)
+            },
+            set: { [weak self] newWidth in
+                self?.applyStrokeWidth(newWidth, for: tool)
+            }
+        )
+    }
+
+    public func defaultColor(for tool: AnnotationTool) -> NSColor {
+        switch tool {
+        case .arrow: return arrowColor
+        case .text: return textColor
+        case .rectangle: return rectColor
+        case .distance: return rulerColor
+        case .numberedPin: return pinColor
+        case .pencil: return highlighterColor
+        default: return rectColor
+        }
+    }
+
+    public func defaultWidth(for tool: AnnotationTool) -> CGFloat {
+        switch tool {
+        case .arrow: return arrowWidth
+        case .text: return textSize
+        case .rectangle: return rectWidth
+        case .pencil: return highlighterWidth
+        default: return 3.0
+        }
+    }
+
+    public func applyColor(_ color: NSColor, for tool: AnnotationTool) {
+        switch tool {
+        case .arrow: arrowColor = color
+        case .text: textColor = color
+        case .rectangle: rectColor = color
+        case .distance: rulerColor = color
+        case .numberedPin: pinColor = color
+        case .pencil: highlighterColor = color
+        default: break
+        }
+        if let idx = selectedAnnotationIndex, idx < annotations.count {
+            annotations[idx].color = color
+            onCanvasMutated?()
+        }
+    }
+
+    public func applyStrokeWidth(_ w: CGFloat, for tool: AnnotationTool) {
+        switch tool {
+        case .arrow: arrowWidth = w
+        case .text: textSize = w
+        case .rectangle: rectWidth = w
+        case .pencil: highlighterWidth = w
+        default: break
+        }
+        if let idx = selectedAnnotationIndex, idx < annotations.count {
+            annotations[idx].strokeWidth = w
+            onCanvasMutated?()
+        }
+    }
+
+    public func applyArrowStyle(_ style: ArrowStyle) {
+        arrowStyle = style
+        if let idx = selectedAnnotationIndex, idx < annotations.count, annotations[idx].tool == .arrow {
+            annotations[idx].arrowStyle = style
+            onCanvasMutated?()
+        }
+    }
+
+    public func flipSelectedArrowDirection() {
+        guard let idx = selectedAnnotationIndex, idx < annotations.count, annotations[idx].tool == .arrow else { return }
+        pushUndoSnapshot()
+        let s = annotations[idx].startPoint
+        annotations[idx].startPoint = annotations[idx].endPoint
+        annotations[idx].endPoint = s
+        onCanvasMutated?()
+    }
+
+    public func applyTextStyle(_ style: TextStyle) {
+        textStyle = style
+        if let idx = selectedAnnotationIndex, idx < annotations.count, annotations[idx].tool == .text {
+            annotations[idx].textStyle = style
+            onCanvasMutated?()
+        }
+    }
+
+    public func applyRectFillMode(_ mode: RectFillMode) {
+        rectFillMode = mode
+        if let idx = selectedAnnotationIndex, idx < annotations.count, annotations[idx].tool == .rectangle {
+            annotations[idx].rectFillMode = mode
+            onCanvasMutated?()
+        }
+    }
+
+    public func applyCornerRadius(_ radius: CGFloat) {
+        rectCornerRadius = radius
+        if let idx = selectedAnnotationIndex, idx < annotations.count, annotations[idx].tool == .rectangle {
+            annotations[idx].cornerRadius = radius
+            onCanvasMutated?()
+        }
+    }
+
+    public func toggleRectSizeTag() {
+        let next = !currentRectShowSizeTag
+        rectShowSizeTag = next
+        if let idx = selectedAnnotationIndex, idx < annotations.count, annotations[idx].tool == .rectangle {
+            annotations[idx].showSizeTag = next
+            onCanvasMutated?()
+        }
+    }
+
     public var contrastInfo: (ratio: Double, badge: String, passedAA: Bool)? {
         guard let bg = pinnedBgHexColor,
               let ratio = PixelInspectBuffer.contrastRatio(hex1: bg, hex2: hoveredHexColor) else { return nil }
@@ -450,7 +350,7 @@ public class ScreenshotEditorWindowController: NSObject, NSWindowDelegate {
 
         let toolbarH: CGFloat = 54
         let minW: CGFloat = 940
-        let minH: CGFloat = 540
+        let minH: CGFloat = 560
 
         let maxW = targetScreen.visibleFrame.width * 0.90
         let maxH = targetScreen.visibleFrame.height * 0.90
@@ -495,29 +395,37 @@ public class ScreenshotEditorWindowController: NSObject, NSWindowDelegate {
     }
 
     public func addSampleAnnotationsForTesting() {
+        let azure = NSColor(red: 10/255, green: 132/255, blue: 255/255, alpha: 1.0)
+        let coral = NSColor(red: 255/255, green: 69/255, blue: 58/255, alpha: 1.0)
+        let amber = NSColor(red: 255/255, green: 159/255, blue: 10/255, alpha: 1.0)
+
         state.annotations = [
-            CanvasAnnotation(tool: .distance, startPoint: CGPoint(x: 80, y: 140), endPoint: CGPoint(x: 360, y: 140)),
-            CanvasAnnotation(tool: .distance, startPoint: CGPoint(x: 410, y: 200), endPoint: CGPoint(x: 410, y: 245)), // 45px -> highlights off-grid amber
-            CanvasAnnotation(tool: .arrow, startPoint: CGPoint(x: 540, y: 310), endPoint: CGPoint(x: 445, y: 215), color: DesignerInk.coral.nsColor),
-            CanvasAnnotation(tool: .rectangle, startPoint: CGPoint(x: 80, y: 200), endPoint: CGPoint(x: 380, y: 270)),
-            CanvasAnnotation(tool: .roundedRect, startPoint: CGPoint(x: 80, y: 300), endPoint: CGPoint(x: 380, y: 400), color: DesignerInk.emerald.nsColor),
-            CanvasAnnotation(tool: .numberedPin, startPoint: CGPoint(x: 428, y: 200), endPoint: CGPoint(x: 428, y: 200), number: 1, color: DesignerInk.coral.nsColor),
-            CanvasAnnotation(tool: .numberedPin, startPoint: CGPoint(x: 428, y: 320), endPoint: CGPoint(x: 428, y: 320), number: 2),
-            CanvasAnnotation(tool: .text, startPoint: CGPoint(x: 465, y: 310), endPoint: CGPoint(x: 465, y: 310), text: "Fix 4px grid margin", color: DesignerInk.coral.nsColor),
-            CanvasAnnotation(tool: .blur, startPoint: CGPoint(x: 520, y: 428), endPoint: CGPoint(x: 775, y: 468)),
+            CanvasAnnotation(tool: .distance, startPoint: CGPoint(x: 80, y: 125), endPoint: CGPoint(x: 360, y: 125), color: azure),
+            CanvasAnnotation(tool: .rectangle, startPoint: CGPoint(x: 80, y: 170), endPoint: CGPoint(x: 360, y: 245), color: azure, strokeWidth: 2.5, rectFillMode: .stroke, cornerRadius: 0, showSizeTag: true),
+            CanvasAnnotation(tool: .rectangle, startPoint: CGPoint(x: 80, y: 280), endPoint: CGPoint(x: 360, y: 360), color: amber, strokeWidth: 2.5, rectFillMode: .tinted, cornerRadius: 8, showSizeTag: false),
+            CanvasAnnotation(tool: .arrow, startPoint: CGPoint(x: 540, y: 255), endPoint: CGPoint(x: 390, y: 185), color: coral, strokeWidth: 5.5, arrowStyle: .tapered),
+            CanvasAnnotation(tool: .arrow, startPoint: CGPoint(x: 410, y: 390), endPoint: CGPoint(x: 540, y: 390), color: azure, strokeWidth: 3.0, arrowStyle: .doubleEnded),
+            CanvasAnnotation(tool: .text, startPoint: CGPoint(x: 545, y: 245), endPoint: CGPoint(x: 545, y: 245), text: "Fix spacing & contrast", color: .white, strokeWidth: 15, textStyle: .quoteBubble),
+            CanvasAnnotation(tool: .numberedPin, startPoint: CGPoint(x: 375, y: 170), endPoint: CGPoint(x: 375, y: 170), number: 1, color: coral),
+            CanvasAnnotation(tool: .blur, startPoint: CGPoint(x: 520, y: 428), endPoint: CGPoint(x: 775, y: 468))
         ]
+        state.selectedAnnotationIndex = 3
         state.recomputeNextPin()
         state.onCanvasMutated?()
     }
 
     public func close() {
         removeKeyboardMonitors()
+        DesignerColorPanelController.shared.clearHandler()
+        NSColorPanel.shared.orderOut(nil)
         window?.orderOut(nil)
         window = nil
     }
 
     public func windowWillClose(_ notification: Notification) {
         removeKeyboardMonitors()
+        DesignerColorPanelController.shared.clearHandler()
+        NSColorPanel.shared.orderOut(nil)
         window = nil
     }
 
@@ -541,15 +449,11 @@ public class ScreenshotEditorWindowController: NSObject, NSWindowDelegate {
             let isShift = flags.contains(.shift)
             let hasOtherMods = flags.contains(.option) || flags.contains(.control)
 
-            // 1. Command shortcuts (Undo, Redo, Copy, Save, Pin, Zoom)
+            // 1. Command shortcuts
             if isCmd && !hasOtherMods {
                 switch event.keyCode {
-                case 6: // Z
-                    if isShift {
-                        self.state.redo()
-                    } else {
-                        self.state.undo()
-                    }
+                case 6: // Z -> Undo / Redo
+                    if isShift { self.state.redo() } else { self.state.undo() }
                     return nil
                 case 8: // C
                     self.state.onRequestCopy?()
@@ -580,7 +484,7 @@ public class ScreenshotEditorWindowController: NSObject, NSWindowDelegate {
             // 2. Non-command functional keys
             if !isCmd && !flags.contains(.control) {
                 switch event.keyCode {
-                case 51, 117: // Delete / Forward Delete
+                case 51, 117: // Delete / Backspace
                     if self.state.selectedAnnotationIndex != nil {
                         self.state.deleteSelected()
                         return nil
@@ -603,16 +507,14 @@ public class ScreenshotEditorWindowController: NSObject, NSWindowDelegate {
                     self.state.onCancelTextOrSelection?()
                     return nil
                 case 49: // Space (Pan hold)
-                    if !self.state.isSpacePanning {
-                        self.state.isSpacePanning = true
-                    }
+                    if !self.state.isSpacePanning { self.state.isSpacePanning = true }
                     return nil
                 default:
                     break
                 }
             }
 
-            // 3. Single-letter Tool Switching (works reliably regardless of SwiftUI toolbar focus)
+            // 3. Single-letter Tool Switching (works reliably regardless of SwiftUI focus)
             if !isCmd && !hasOtherMods && !isShift {
                 switch event.keyCode {
                 case 9:  self.state.currentTool = .pointer; return nil      // V
@@ -620,8 +522,14 @@ public class ScreenshotEditorWindowController: NSObject, NSWindowDelegate {
                 case 0:  self.state.currentTool = .arrow; return nil        // A
                 case 17: self.state.currentTool = .text; return nil         // T
                 case 45: self.state.currentTool = .numberedPin; return nil  // N
-                case 15: self.state.currentTool = .rectangle; return nil    // R
-                case 8:  self.state.currentTool = .roundedRect; return nil  // C
+                case 15: // R -> Rectangle (sharp border)
+                    self.state.rectCornerRadius = 0.0
+                    self.state.currentTool = .rectangle
+                    return nil
+                case 8:  // C -> Rounded Card preset on Rectangle
+                    self.state.rectCornerRadius = 8.0
+                    self.state.currentTool = .rectangle
+                    return nil
                 case 35: self.state.currentTool = .pencil; return nil       // P
                 case 11: self.state.currentTool = .blur; return nil         // B
                 default: break
@@ -632,7 +540,7 @@ public class ScreenshotEditorWindowController: NSObject, NSWindowDelegate {
         }
 
         localKeyUpMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyUp) { [weak self] event in
-            if event.keyCode == 49 { // Space release
+            if event.keyCode == 49 {
                 self?.state.isSpacePanning = false
             }
             return event
@@ -651,7 +559,7 @@ public class ScreenshotEditorWindowController: NSObject, NSWindowDelegate {
     }
 }
 
-// MARK: - Root View with Unified Shottr-Inspired Toolbar
+// MARK: - Root View with Unified Toolbar & Floating Contextual Inspector
 public struct ScreenshotEditorRootView: View {
     @ObservedObject var state: ScreenshotEditorState
     let onClose: () -> Void
@@ -669,8 +577,14 @@ public struct ScreenshotEditorRootView: View {
                         )
                 )
 
-            ScreenshotEditorCanvasRepresentable(state: state)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            ZStack(alignment: .top) {
+                ScreenshotEditorCanvasRepresentable(state: state)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                // Contextual Floating Inspector Bar (Figma / Shottr Style)
+                DesignerInspectorBar(state: state)
+                    .padding(.top, 10)
+            }
         }
         .edgesIgnoringSafeArea(.top)
         .onAppear {
@@ -720,61 +634,39 @@ public struct ScreenshotEditorRootView: View {
 
             Spacer()
 
-            // Center Cluster: Annotation Tools + Compact 4-Ink Color Switcher
-            HStack(spacing: 8) {
-                HStack(spacing: 3) {
-                    ForEach(AnnotationTool.allCases) { tool in
-                        Button(action: { state.currentTool = tool }) {
-                            Image(systemName: tool.icon)
-                                .font(.system(size: 13, weight: state.currentTool == tool ? .semibold : .regular))
-                                .foregroundColor(state.currentTool == tool ? state.activeInk.swiftUIColor : .primary.opacity(0.85))
-                                .frame(width: 28, height: 26)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                        .fill(state.currentTool == tool ? state.activeInk.swiftUIColor.opacity(0.14) : Color.clear)
-                                )
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                        .stroke(state.currentTool == tool ? state.activeInk.swiftUIColor.opacity(0.35) : Color.clear, lineWidth: 0.8)
-                                )
-                        }
-                        .buttonStyle(.plain)
-                        .help(tool.tooltip)
+            // Center Cluster: Clean Tool Bar
+            HStack(spacing: 3) {
+                ForEach(AnnotationTool.allCases) { tool in
+                    Button(action: {
+                        state.selectedAnnotationIndex = nil
+                        state.currentTool = tool
+                    }) {
+                        Image(systemName: tool.icon)
+                            .font(.system(size: 13.5, weight: state.currentTool == tool ? .semibold : .regular))
+                            .foregroundColor(state.currentTool == tool ? Color(red: 10/255, green: 132/255, blue: 255/255) : .primary.opacity(0.85))
+                            .frame(width: 30, height: 26)
+                            .background(
+                                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                    .fill(state.currentTool == tool ? Color(red: 10/255, green: 132/255, blue: 255/255).opacity(0.12) : Color.clear)
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                    .stroke(state.currentTool == tool ? Color(red: 10/255, green: 132/255, blue: 255/255).opacity(0.35) : Color.clear, lineWidth: 0.8)
+                            )
                     }
+                    .buttonStyle(.plain)
+                    .help(tool.tooltip)
                 }
-                .padding(.horizontal, 5)
-                .padding(.vertical, 3)
-                .background(Capsule().fill(Color.primary.opacity(0.04)))
-                .overlay(Capsule().stroke(Color.primary.opacity(0.08), lineWidth: 0.8))
-
-                // 4-Color Ink Dots
-                HStack(spacing: 5) {
-                    ForEach(DesignerInk.allCases) { ink in
-                        Button(action: { state.activeInk = ink }) {
-                            Circle()
-                                .fill(ink.swiftUIColor)
-                                .frame(width: 11, height: 11)
-                                .overlay(
-                                    Circle()
-                                        .stroke(Color.primary.opacity(state.activeInk == ink ? 0.85 : 0.15), lineWidth: state.activeInk == ink ? 1.5 : 0.5)
-                                        .padding(-2)
-                                )
-                        }
-                        .buttonStyle(.plain)
-                        .help(ink.label)
-                    }
-                }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 6)
-                .background(Capsule().fill(Color.primary.opacity(0.04)))
-                .overlay(Capsule().stroke(Color.primary.opacity(0.08), lineWidth: 0.8))
             }
+            .padding(.horizontal, 5)
+            .padding(.vertical, 3)
+            .background(Capsule().fill(Color.primary.opacity(0.04)))
+            .overlay(Capsule().stroke(Color.primary.opacity(0.08), lineWidth: 0.8))
 
             Spacer()
 
             // Right Cluster: Hex Loupe + Contrast, Pixels + Points Size, Interactive Zoom
             HStack(spacing: 10) {
-                // Color Loupe + Contrast Ratio Readout
                 Button(action: {
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(state.hoveredHexColor, forType: .string)
@@ -823,7 +715,6 @@ public struct ScreenshotEditorRootView: View {
 
                 Divider().frame(height: 18)
 
-                // Dual Image Size: Pixels (Primary) + Points (Secondary)
                 VStack(alignment: .leading, spacing: 0) {
                     Text(verbatim: "\(Int(state.pixelSize.width))×\(Int(state.pixelSize.height)) px")
                         .font(.system(size: 10.5, weight: .semibold, design: .rounded))
@@ -840,7 +731,6 @@ public struct ScreenshotEditorRootView: View {
 
                 Divider().frame(height: 18)
 
-                // Interactive Zoom Pill (Scroll/Pinch/Cmd± to zoom)
                 Menu {
                     Button("Zoom to Fit (⌘0)") { state.onRequestZoomFit?() }
                     Button("Actual Size 100% (⌘1)") { state.onRequestZoomActual?() }
@@ -941,28 +831,38 @@ public struct ScreenshotEditorCanvasRepresentable: NSViewRepresentable {
     }
 }
 
-// MARK: - Interactive AppKit Vector Canvas with Cursor Zoom & Smart UI Edge Snapping
-public class ScreenshotEditorCanvasNSView: NSView {
+// MARK: - Interactive Handle Kinds for Live Resize / Re-aim / Curve Bend
+private enum DragHandleMode {
+    case none
+    case moveBody
+    case startEndpoint
+    case endEndpoint
+    case curveControlPoint
+    case rectTopLeft
+    case rectTopRight
+    case rectBottomLeft
+    case rectBottomRight
+}
+
+// MARK: - Interactive AppKit Vector Canvas
+public class ScreenshotEditorCanvasNSView: NSView, NSTextFieldDelegate {
     private var state: ScreenshotEditorState
     private var pixelBuffer: PixelInspectBuffer?
     private var cachedImageID: ObjectIdentifier?
     private var trackingAreaRef: NSTrackingArea?
 
-    // Drag / Pan / Hover state
     private var dragStartImagePoint: CGPoint?
+    private var activeHandleMode: DragHandleMode = .none
     private var lastPanViewPoint: NSPoint?
     private var isPanningCanvas: Bool = false
-    private var hasPushedMoveUndo: Bool = false
+    private var hasPushedDragUndo: Bool = false
     private var liveAnnotation: CanvasAnnotation?
-    private var currentHoverImagePoint: CGPoint?
     private var hoverSmartSpan: PixelInspectBuffer.SmartSpan?
     private var activeSnapGuides: (horizontalY: [CGFloat], verticalX: [CGFloat]) = ([], [])
 
-    // Inline text editor
     private var inlineTextField: NSTextField?
     private var editingAnnotationIndex: Int?
 
-    // Core Image context for live Mosaic Redaction
     private static let ciContext = CIContext(options: [.useSoftwareRenderer: false])
     private var cachedBlurredNSImage: NSImage?
     private var cachedBlurredImageID: ObjectIdentifier?
@@ -990,21 +890,12 @@ public class ScreenshotEditorCanvasNSView: NSView {
     private func wireStateCallbacks() {
         state.onRequestZoomBy = { [weak self] factor in
             guard let self else { return }
-            let center = NSPoint(x: self.bounds.midX, y: self.bounds.midY)
-            self.applyZoom(factor: factor, anchoredAtViewPoint: center)
+            self.applyZoom(factor: factor, anchoredAtViewPoint: NSPoint(x: self.bounds.midX, y: self.bounds.midY))
         }
-        state.onRequestZoomFit = { [weak self] in
-            self?.resetZoomToFit()
-        }
-        state.onRequestZoomActual = { [weak self] in
-            self?.zoomToActual100()
-        }
-        state.onCancelTextOrSelection = { [weak self] in
-            self?.cancelActiveInteractions()
-        }
-        state.onCanvasMutated = { [weak self] in
-            self?.needsDisplay = true
-        }
+        state.onRequestZoomFit = { [weak self] in self?.resetZoomToFit() }
+        state.onRequestZoomActual = { [weak self] in self?.zoomToActual100() }
+        state.onCancelTextOrSelection = { [weak self] in self?.cancelActiveInteractions() }
+        state.onCanvasMutated = { [weak self] in self?.needsDisplay = true }
     }
 
     private func updateCaches() {
@@ -1060,7 +951,7 @@ public class ScreenshotEditorCanvasNSView: NSView {
         guard let img = state.image, img.size.width > 0 && img.size.height > 0 else { return 1.0 }
         guard bounds.width > 80 && bounds.height > 80 else { return 1.0 }
         let availW = bounds.width - 40
-        let availH = bounds.height - 40
+        let availH = bounds.height - 60 // Extra breathing room at top for floating inspector
         return min(min(availW / img.size.width, availH / img.size.height), 1.0)
     }
 
@@ -1084,7 +975,7 @@ public class ScreenshotEditorCanvasNSView: NSView {
         let renderW = img.size.width * scale
         let renderH = img.size.height * scale
         let cx = bounds.midX + state.panOffset.x
-        let cy = bounds.midY + state.panOffset.y
+        let cy = bounds.midY + state.panOffset.y - 12 // Slight downward bias beneath floating inspector
         return NSRect(x: cx - renderW / 2, y: cy - renderH / 2, width: renderW, height: renderH)
     }
 
@@ -1104,10 +995,7 @@ public class ScreenshotEditorCanvasNSView: NSView {
 
     private func viewPointToClampedImagePoint(_ viewPt: NSPoint) -> CGPoint? {
         guard let pt = viewPointToImagePointUnclamped(viewPt), let img = state.image else { return nil }
-        return CGPoint(
-            x: max(0, min(img.size.width, pt.x)),
-            y: max(0, min(img.size.height, pt.y))
-        )
+        return CGPoint(x: max(0, min(img.size.width, pt.x)), y: max(0, min(img.size.height, pt.y)))
     }
 
     private func imagePointToViewPoint(_ imgPt: CGPoint) -> NSPoint {
@@ -1118,13 +1006,13 @@ public class ScreenshotEditorCanvasNSView: NSView {
         return NSPoint(x: r.origin.x + relX * r.width, y: r.origin.y + relY * r.height)
     }
 
-    // MARK: - Zoom & Pan Gestures (Anchored at Cursor)
+    // MARK: - Zoom & Pan Gestures (Cursor-Anchored)
     private func applyZoom(factor: CGFloat, anchoredAtViewPoint anchor: NSPoint) {
         let oldEff = effectiveScale()
         guard oldEff > 0 else { return }
 
         let oldCenterX = bounds.midX + state.panOffset.x
-        let oldCenterY = bounds.midY + state.panOffset.y
+        let oldCenterY = bounds.midY + state.panOffset.y - 12
         let offsetFromCenterX = (anchor.x - oldCenterX) / oldEff
         let offsetFromCenterY = (anchor.y - oldCenterY) / oldEff
 
@@ -1138,11 +1026,10 @@ public class ScreenshotEditorCanvasNSView: NSView {
         let newCenterY = anchor.y - offsetFromCenterY * newEff
 
         if newZoomScale <= 1.02 && factor < 1.0 {
-            // Gently snap centered when returning to fit zoom
             state.panOffset = .zero
             if abs(newZoomScale - 1.0) < 0.05 { state.zoomScale = 1.0 }
         } else {
-            state.panOffset = CGPoint(x: newCenterX - bounds.midX, y: newCenterY - bounds.midY)
+            state.panOffset = CGPoint(x: newCenterX - bounds.midX, y: newCenterY - (bounds.midY - 12))
         }
         state.effectiveDisplayScale = effectiveScale()
         needsDisplay = true
@@ -1165,7 +1052,6 @@ public class ScreenshotEditorCanvasNSView: NSView {
 
     override public func scrollWheel(with event: NSEvent) {
         let loc = convert(event.locationInWindow, from: nil)
-        // Zoom anchored at cursor on hover scroll (supports both mouse wheel and trackpad)
         if abs(event.scrollingDeltaY) > 0.05 {
             let sensitivity: CGFloat = event.hasPreciseScrollingDeltas ? 0.012 : 0.08
             let factor = exp(event.scrollingDeltaY * sensitivity)
@@ -1188,27 +1074,23 @@ public class ScreenshotEditorCanvasNSView: NSView {
         refreshHoverTelemetry(atViewPoint: convert(window?.mouseLocationOutsideOfEventStream ?? .zero, from: nil), modifiers: event.modifierFlags)
     }
 
-    // MARK: - Mouse Hover, Drawing, Dragging
+    // MARK: - Mouse Hover, Handle Detection, Drawing, Dragging
     override public func mouseMoved(with event: NSEvent) {
-        let viewLoc = convert(event.locationInWindow, from: nil)
-        refreshHoverTelemetry(atViewPoint: viewLoc, modifiers: event.modifierFlags)
+        refreshHoverTelemetry(atViewPoint: convert(event.locationInWindow, from: nil), modifiers: event.modifierFlags)
     }
 
     override public func mouseExited(with event: NSEvent) {
-        currentHoverImagePoint = nil
         hoverSmartSpan = nil
         needsDisplay = true
     }
 
     private func refreshHoverTelemetry(atViewPoint viewLoc: NSPoint, modifiers: NSEvent.ModifierFlags) {
         guard let imgPt = viewPointToImagePoint(viewLoc) else {
-            currentHoverImagePoint = nil
             hoverSmartSpan = nil
             needsDisplay = true
             return
         }
 
-        currentHoverImagePoint = imgPt
         if let sample = pixelBuffer?.sampleColor(at: imgPt) {
             state.hoveredHexColor = sample.hex
         }
@@ -1220,12 +1102,10 @@ public class ScreenshotEditorCanvasNSView: NSView {
         } else {
             hoverSmartSpan = nil
         }
-
         needsDisplay = true
     }
 
     override public func otherMouseDown(with event: NSEvent) {
-        // Middle mouse drag pans canvas
         isPanningCanvas = true
         lastPanViewPoint = convert(event.locationInWindow, from: nil)
         NSCursor.closedHand.set()
@@ -1252,7 +1132,6 @@ public class ScreenshotEditorCanvasNSView: NSView {
 
         let viewLoc = convert(event.locationInWindow, from: nil)
 
-        // Space + Drag -> Pan canvas
         if state.isSpacePanning {
             isPanningCanvas = true
             lastPanViewPoint = viewLoc
@@ -1261,7 +1140,6 @@ public class ScreenshotEditorCanvasNSView: NSView {
         }
 
         guard let imgPt = viewPointToClampedImagePoint(viewLoc) else {
-            // Clicking margin outside image with Pointer can pan
             if state.currentTool == .pointer {
                 isPanningCanvas = true
                 lastPanViewPoint = viewLoc
@@ -1270,7 +1148,25 @@ public class ScreenshotEditorCanvasNSView: NSView {
             return
         }
 
-        // Alt+Click with smart distance enabled OR clicking on pointer double-click
+        // Check handle hits on currently selected annotation first (even when another draw tool is active!)
+        if let selIdx = state.selectedAnnotationIndex, selIdx < state.annotations.count {
+            let handleHit = hitTestHandle(atViewPoint: viewLoc, annotation: state.annotations[selIdx])
+            if handleHit != .none {
+                // Double-clicking curve midpoint resets curve straight cleanly
+                if case .curveControlPoint = handleHit, event.clickCount == 2 {
+                    state.pushUndoSnapshot()
+                    state.annotations[selIdx].controlPoint = nil
+                    needsDisplay = true
+                    return
+                }
+                activeHandleMode = handleHit
+                dragStartImagePoint = imgPt
+                hasPushedDragUndo = false
+                needsDisplay = true
+                return
+            }
+        }
+
         if event.clickCount == 2, state.currentTool == .pointer {
             if let hitIdx = topAnnotationIndex(at: imgPt), state.annotations[hitIdx].tool == .text {
                 beginEditingTextAnnotation(at: hitIdx)
@@ -1282,11 +1178,12 @@ public class ScreenshotEditorCanvasNSView: NSView {
         case .pointer:
             if let hitIdx = topAnnotationIndex(at: imgPt) {
                 state.selectedAnnotationIndex = hitIdx
+                activeHandleMode = .moveBody
                 dragStartImagePoint = imgPt
-                hasPushedMoveUndo = false
+                hasPushedDragUndo = false
             } else {
                 state.selectedAnnotationIndex = nil
-                // Dragging empty background inside zoomed image with Pointer also pans seamlessly
+                activeHandleMode = .none
                 if state.zoomScale > 1.05 {
                     isPanningCanvas = true
                     lastPanViewPoint = viewLoc
@@ -1299,21 +1196,32 @@ public class ScreenshotEditorCanvasNSView: NSView {
                 startPoint: imgPt,
                 endPoint: imgPt,
                 number: state.nextPinNumber,
-                color: state.activeInk.nsColor
+                color: state.pinColor
             )
             state.addAnnotation(pin)
 
         case .text:
-            showInlineTextEditor(atViewPoint: viewLoc, imagePoint: imgPt, initialText: "")
+            // If clicking right onto an existing text callout, edit it directly!
+            if let hitIdx = topAnnotationIndex(at: imgPt), state.annotations[hitIdx].tool == .text {
+                state.selectedAnnotationIndex = hitIdx
+                beginEditingTextAnnotation(at: hitIdx)
+            } else {
+                showInlineTextEditor(atViewPoint: viewLoc, imagePoint: imgPt, initialText: "")
+            }
 
         case .pencil:
             dragStartImagePoint = imgPt
-            var ann = CanvasAnnotation(tool: .pencil, startPoint: imgPt, endPoint: imgPt, color: state.activeInk.nsColor)
+            var ann = CanvasAnnotation(
+                tool: .pencil,
+                startPoint: imgPt,
+                endPoint: imgPt,
+                color: state.highlighterColor,
+                strokeWidth: state.highlighterWidth
+            )
             ann.pathPoints = [imgPt]
             liveAnnotation = ann
 
         case .distance:
-            // Snap startPoint to nearby contrast edge (within 9pt) unless holding Command
             var startPt = imgPt
             activeSnapGuides = ([], [])
             if !event.modifierFlags.contains(.command), let buf = pixelBuffer {
@@ -1327,11 +1235,35 @@ public class ScreenshotEditorCanvasNSView: NSView {
                 }
             }
             dragStartImagePoint = startPt
-            liveAnnotation = CanvasAnnotation(tool: .distance, startPoint: startPt, endPoint: startPt, color: state.activeInk.nsColor)
+            liveAnnotation = CanvasAnnotation(tool: .distance, startPoint: startPt, endPoint: startPt, color: state.rulerColor)
 
-        default:
+        case .arrow:
             dragStartImagePoint = imgPt
-            liveAnnotation = CanvasAnnotation(tool: state.currentTool, startPoint: imgPt, endPoint: imgPt, color: state.activeInk.nsColor)
+            liveAnnotation = CanvasAnnotation(
+                tool: .arrow,
+                startPoint: imgPt,
+                endPoint: imgPt,
+                color: state.arrowColor,
+                strokeWidth: state.arrowWidth,
+                arrowStyle: state.arrowStyle
+            )
+
+        case .rectangle:
+            dragStartImagePoint = imgPt
+            liveAnnotation = CanvasAnnotation(
+                tool: .rectangle,
+                startPoint: imgPt,
+                endPoint: imgPt,
+                color: state.rectColor,
+                strokeWidth: state.rectWidth,
+                rectFillMode: state.rectFillMode,
+                cornerRadius: state.rectCornerRadius,
+                showSizeTag: state.rectShowSizeTag
+            )
+
+        case .blur:
+            dragStartImagePoint = imgPt
+            liveAnnotation = CanvasAnnotation(tool: .blur, startPoint: imgPt, endPoint: imgPt)
         }
 
         needsDisplay = true
@@ -1350,33 +1282,28 @@ public class ScreenshotEditorCanvasNSView: NSView {
 
         guard let currentImgPt = viewPointToClampedImagePoint(viewLoc) else { return }
 
-        if state.currentTool == .pointer, let idx = state.selectedAnnotationIndex, let start = dragStartImagePoint {
-            if !hasPushedMoveUndo {
+        // Handle Manipulation of Selected Annotation
+        if let idx = state.selectedAnnotationIndex, idx < state.annotations.count, activeHandleMode != .none, let start = dragStartImagePoint {
+            if !hasPushedDragUndo {
                 state.pushUndoSnapshot()
-                hasPushedMoveUndo = true
+                hasPushedDragUndo = true
             }
-            let dx = currentImgPt.x - start.x
-            let dy = currentImgPt.y - start.y
-            state.annotations[idx].startPoint.x += dx
-            state.annotations[idx].startPoint.y += dy
-            state.annotations[idx].endPoint.x += dx
-            state.annotations[idx].endPoint.y += dy
-            for i in 0..<state.annotations[idx].pathPoints.count {
-                state.annotations[idx].pathPoints[i].x += dx
-                state.annotations[idx].pathPoints[i].y += dy
-            }
+            applyHandleDrag(mode: activeHandleMode, index: idx, from: start, to: currentImgPt, modifiers: event.modifierFlags)
             dragStartImagePoint = currentImgPt
-        } else if var live = liveAnnotation, let start = dragStartImagePoint {
+            needsDisplay = true
+            return
+        }
+
+        // Drawing New Annotation Live Preview
+        if var live = liveAnnotation, let start = dragStartImagePoint {
             var end = currentImgPt
             activeSnapGuides = ([], [])
 
             if live.tool == .distance {
-                // STRICT HORIZONTAL OR VERTICAL ONLY — NEVER DIAGONAL!
+                // Strictly Horizontal OR Vertical — NEVER diagonal
                 let dx = abs(end.x - start.x)
                 let dy = abs(end.y - start.y)
-                let isHorizontal = dx >= dy
-
-                if isHorizontal {
+                if dx >= dy {
                     end.y = start.y
                     if !event.modifierFlags.contains(.command), let buf = pixelBuffer {
                         if let snappedEndX = buf.snapCoordinate(near: CGPoint(x: end.x, y: start.y), horizontal: true) {
@@ -1395,6 +1322,13 @@ public class ScreenshotEditorCanvasNSView: NSView {
                         }
                     }
                 }
+            } else if live.tool == .rectangle && event.modifierFlags.contains(.shift) {
+                // Shift locks aspect ratio 1:1 square cleanly like Figma
+                let dx = end.x - start.x
+                let dy = end.y - start.y
+                let side = max(abs(dx), abs(dy))
+                end.x = start.x + (dx >= 0 ? side : -side)
+                end.y = start.y + (dy >= 0 ? side : -side)
             } else if live.tool == .pencil {
                 live.pathPoints.append(end)
             }
@@ -1415,37 +1349,31 @@ public class ScreenshotEditorCanvasNSView: NSView {
         }
 
         activeSnapGuides = ([], [])
-        hasPushedMoveUndo = false
+        hasPushedDragUndo = false
+        activeHandleMode = .none
 
         if var live = liveAnnotation {
             let dx = abs(live.endPoint.x - live.startPoint.x)
             let dy = abs(live.endPoint.y - live.startPoint.y)
 
-            if dx > 3 || dy > 3 || (live.tool == .pencil && live.pathPoints.count > 2) {
+            if dx > 4 || dy > 4 || (live.tool == .pencil && live.pathPoints.count > 2) {
                 state.addAnnotation(live)
             } else if live.tool == .distance, let span = pixelBuffer?.raycastSpan(at: live.startPoint) {
-                // Single click with D tool: automatically drop tighter snapped vertical or horizontal span!
+                // One-click measure only when tightly bounded by UI element edges (8px..360px)
                 let hDist = span.horizontalDistance
                 let vDist = span.verticalDistance
                 let imgW = state.imageSize.width
                 let imgH = state.imageSize.height
 
-                let useVertical: Bool
-                if event.modifierFlags.contains(.shift) {
-                    useVertical = !(vDist <= hDist)
-                } else if vDist <= 420 && hDist > 420 {
-                    useVertical = true
-                } else if hDist <= 420 && vDist > 420 {
-                    useVertical = false
-                } else {
-                    useVertical = vDist <= hDist
-                }
+                let useVertical = event.modifierFlags.contains(.shift)
+                    ? (vDist > hDist)
+                    : (vDist >= 8 && vDist <= 360 && (hDist > 360 || vDist <= hDist))
 
-                if useVertical && vDist >= 4 && CGFloat(vDist) < imgH * 0.92 {
+                if useVertical && vDist >= 8 && vDist <= 360 && CGFloat(vDist) < imgH * 0.85 {
                     live.startPoint = CGPoint(x: live.startPoint.x, y: span.topY)
                     live.endPoint = CGPoint(x: live.startPoint.x, y: span.bottomY)
                     state.addAnnotation(live)
-                } else if !useVertical && hDist >= 4 && CGFloat(hDist) < imgW * 0.92 {
+                } else if hDist >= 8 && hDist <= 360 && CGFloat(hDist) < imgW * 0.85 {
                     live.startPoint = CGPoint(x: span.leftX, y: live.startPoint.y)
                     live.endPoint = CGPoint(x: span.rightX, y: live.startPoint.y)
                     state.addAnnotation(live)
@@ -1456,6 +1384,98 @@ public class ScreenshotEditorCanvasNSView: NSView {
 
         dragStartImagePoint = nil
         needsDisplay = true
+    }
+
+    private func applyHandleDrag(mode: DragHandleMode, index idx: Int, from prev: CGPoint, to cur: CGPoint, modifiers: NSEvent.ModifierFlags) {
+        activeSnapGuides = ([], [])
+        switch mode {
+        case .none:
+            break
+
+        case .moveBody:
+            let dx = cur.x - prev.x
+            let dy = cur.y - prev.y
+            state.annotations[idx].startPoint.x += dx
+            state.annotations[idx].startPoint.y += dy
+            state.annotations[idx].endPoint.x += dx
+            state.annotations[idx].endPoint.y += dy
+            if let cp = state.annotations[idx].controlPoint {
+                state.annotations[idx].controlPoint = CGPoint(x: cp.x + dx, y: cp.y + dy)
+            }
+            for i in 0..<state.annotations[idx].pathPoints.count {
+                state.annotations[idx].pathPoints[i].x += dx
+                state.annotations[idx].pathPoints[i].y += dy
+            }
+
+        case .startEndpoint:
+            if state.annotations[idx].tool == .distance {
+                let isHoriz = abs(state.annotations[idx].endPoint.x - state.annotations[idx].startPoint.x) >= abs(state.annotations[idx].endPoint.y - state.annotations[idx].startPoint.y)
+                if isHoriz {
+                    var nx = cur.x
+                    if !modifiers.contains(.command), let sX = pixelBuffer?.snapCoordinate(near: CGPoint(x: nx, y: state.annotations[idx].startPoint.y), horizontal: true) {
+                        nx = sX
+                        activeSnapGuides.verticalX.append(nx)
+                    }
+                    state.annotations[idx].startPoint.x = nx
+                } else {
+                    var ny = cur.y
+                    if !modifiers.contains(.command), let sY = pixelBuffer?.snapCoordinate(near: CGPoint(x: state.annotations[idx].startPoint.x, y: ny), horizontal: false) {
+                        ny = sY
+                        activeSnapGuides.horizontalY.append(ny)
+                    }
+                    state.annotations[idx].startPoint.y = ny
+                }
+            } else {
+                state.annotations[idx].startPoint = cur
+            }
+
+        case .endEndpoint:
+            if state.annotations[idx].tool == .distance {
+                let isHoriz = abs(state.annotations[idx].endPoint.x - state.annotations[idx].startPoint.x) >= abs(state.annotations[idx].endPoint.y - state.annotations[idx].startPoint.y)
+                if isHoriz {
+                    var nx = cur.x
+                    if !modifiers.contains(.command), let sX = pixelBuffer?.snapCoordinate(near: CGPoint(x: nx, y: state.annotations[idx].endPoint.y), horizontal: true) {
+                        nx = sX
+                        activeSnapGuides.verticalX.append(nx)
+                    }
+                    state.annotations[idx].endPoint.x = nx
+                } else {
+                    var ny = cur.y
+                    if !modifiers.contains(.command), let sY = pixelBuffer?.snapCoordinate(near: CGPoint(x: state.annotations[idx].endPoint.x, y: ny), horizontal: false) {
+                        ny = sY
+                        activeSnapGuides.horizontalY.append(ny)
+                    }
+                    state.annotations[idx].endPoint.y = ny
+                }
+            } else {
+                state.annotations[idx].endPoint = cur
+            }
+
+        case .curveControlPoint:
+            // Adjust quadratic bezier curve handle so arrow bends naturally through dragged cursor
+            let mid = CGPoint(
+                x: (state.annotations[idx].startPoint.x + state.annotations[idx].endPoint.x) * 0.5,
+                y: (state.annotations[idx].startPoint.y + state.annotations[idx].endPoint.y) * 0.5
+            )
+            // Control point sits 2x offset from chord midpoint so curve peak passes smoothly through `cur`
+            state.annotations[idx].controlPoint = CGPoint(x: 2 * cur.x - mid.x, y: 2 * cur.y - mid.y)
+
+        case .rectTopLeft, .rectTopRight, .rectBottomLeft, .rectBottomRight:
+            var minX = min(state.annotations[idx].startPoint.x, state.annotations[idx].endPoint.x)
+            var maxX = max(state.annotations[idx].startPoint.x, state.annotations[idx].endPoint.x)
+            var minY = min(state.annotations[idx].startPoint.y, state.annotations[idx].endPoint.y)
+            var maxY = max(state.annotations[idx].startPoint.y, state.annotations[idx].endPoint.y)
+
+            switch mode {
+            case .rectTopLeft:     minX = min(cur.x, maxX - 8); minY = min(cur.y, maxY - 8)
+            case .rectTopRight:    maxX = max(cur.x, minX + 8); minY = min(cur.y, maxY - 8)
+            case .rectBottomLeft:  minX = min(cur.x, maxX - 8); maxY = max(cur.y, minY + 8)
+            case .rectBottomRight: maxX = max(cur.x, minX + 8); maxY = max(cur.y, minY + 8)
+            default: break
+            }
+            state.annotations[idx].startPoint = CGPoint(x: minX, y: minY)
+            state.annotations[idx].endPoint = CGPoint(x: maxX, y: maxY)
+        }
     }
 
     private func cancelActiveInteractions() {
@@ -1471,25 +1491,35 @@ public class ScreenshotEditorCanvasNSView: NSView {
         needsDisplay = true
     }
 
-    // MARK: - Inline Text Editor
+    // MARK: - Inline Text Input (Click-to-Write + Shift-Return Newline)
     private func beginEditingTextAnnotation(at index: Int) {
         guard index >= 0 && index < state.annotations.count else { return }
         let ann = state.annotations[index]
         editingAnnotationIndex = index
         let viewPt = imagePointToViewPoint(ann.startPoint)
-        showInlineTextEditor(atViewPoint: viewPt, imagePoint: ann.startPoint, initialText: ann.text)
+        showInlineTextEditor(atViewPoint: viewPt, imagePoint: ann.startPoint, initialText: ann.text, fontColor: ann.color, fontSize: ann.strokeWidth > 8 ? ann.strokeWidth : state.textSize)
     }
 
-    private func showInlineTextEditor(atViewPoint viewPoint: NSPoint, imagePoint: CGPoint, initialText: String) {
+    private func showInlineTextEditor(atViewPoint viewPoint: NSPoint, imagePoint: CGPoint, initialText: String, fontColor: NSColor? = nil, fontSize: CGFloat? = nil) {
         dismissInlineTextField()
-        let field = NSTextField(frame: NSRect(x: max(12, min(viewPoint.x - 10, bounds.width - 210)), y: max(12, min(viewPoint.y - 14, bounds.height - 40)), width: 200, height: 28))
+        let activeColor = fontColor ?? state.textColor
+        let activeSize = fontSize ?? state.textSize
+        let field = NSTextField(frame: NSRect(
+            x: max(12, min(viewPoint.x - 4, bounds.width - 250)),
+            y: max(12, min(viewPoint.y - 28, bounds.height - 60)),
+            width: 240,
+            height: max(30, activeSize + 14)
+        ))
         field.focusRingType = .exterior
         field.bezelStyle = .roundedBezel
-        field.backgroundColor = NSColor.black.withAlphaComponent(0.90)
-        field.textColor = .white
-        field.font = NSFont.systemFont(ofSize: 12, weight: .medium)
+        field.backgroundColor = activeColor.relativeLuminance > 0.45
+            ? NSColor(red: 22/255, green: 22/255, blue: 26/255, alpha: 0.94)
+            : NSColor.white.withAlphaComponent(0.96)
+        field.textColor = activeColor
+        field.font = NSFont.systemFont(ofSize: min(24, max(12, activeSize)), weight: .medium)
         field.stringValue = initialText
-        field.placeholderString = "Note (Return to apply)"
+        field.placeholderString = "Write text (Return to finish)"
+        field.delegate = self
         field.target = self
         field.action = #selector(textEntered(_:))
 
@@ -1497,6 +1527,19 @@ public class ScreenshotEditorCanvasNSView: NSView {
         window?.makeFirstResponder(field)
         self.inlineTextField = field
         self.dragStartImagePoint = imagePoint
+    }
+
+    public func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+        if commandSelector == #selector(NSResponder.insertNewline(_:)) {
+            if NSApp.currentEvent?.modifierFlags.contains(.shift) == true {
+                textView.insertNewlineIgnoringFieldEditor(nil)
+                return true
+            }
+            commitInlineTextIfNeeded()
+            window?.makeFirstResponder(self)
+            return true
+        }
+        return false
     }
 
     @objc private func textEntered(_ sender: NSTextField) {
@@ -1512,15 +1555,24 @@ public class ScreenshotEditorCanvasNSView: NSView {
             if !text.isEmpty && text != state.annotations[editIdx].text {
                 state.pushUndoSnapshot()
                 state.annotations[editIdx].text = text
+                state.selectedAnnotationIndex = editIdx
             }
         } else if !text.isEmpty, let imgPt = dragStartImagePoint {
-            var ann = CanvasAnnotation(tool: .text, startPoint: imgPt, endPoint: imgPt, color: state.activeInk.nsColor)
+            var ann = CanvasAnnotation(
+                tool: .text,
+                startPoint: imgPt,
+                endPoint: imgPt,
+                color: state.textColor,
+                strokeWidth: state.textSize,
+                textStyle: state.textStyle
+            )
             ann.text = text
             state.addAnnotation(ann)
         }
 
         editingAnnotationIndex = nil
-        dismissInlineTextField()
+        tf.removeFromSuperview()
+        inlineTextField = nil
         needsDisplay = true
     }
 
@@ -1530,7 +1582,57 @@ public class ScreenshotEditorCanvasNSView: NSView {
         inlineTextField = nil
     }
 
-    // MARK: - Hit Testing
+    // MARK: - Handle & Body Hit Testing
+    private func hitTestHandle(atViewPoint viewPt: NSPoint, annotation ann: CanvasAnnotation) -> DragHandleMode {
+        let hitRadius: CGFloat = 9.0
+        switch ann.tool {
+        case .arrow:
+            let vEnd = imagePointToViewPoint(ann.endPoint)
+            let vStart = imagePointToViewPoint(ann.startPoint)
+            let vMid = arrowMidpointView(ann)
+            if hypot(viewPt.x - vEnd.x, viewPt.y - vEnd.y) <= hitRadius { return .endEndpoint }
+            if hypot(viewPt.x - vStart.x, viewPt.y - vStart.y) <= hitRadius { return .startEndpoint }
+            if hypot(viewPt.x - vMid.x, viewPt.y - vMid.y) <= hitRadius { return .curveControlPoint }
+
+        case .distance:
+            let vEnd = imagePointToViewPoint(ann.endPoint)
+            let vStart = imagePointToViewPoint(ann.startPoint)
+            if hypot(viewPt.x - vEnd.x, viewPt.y - vEnd.y) <= hitRadius { return .endEndpoint }
+            if hypot(viewPt.x - vStart.x, viewPt.y - vStart.y) <= hitRadius { return .startEndpoint }
+
+        case .rectangle, .blur:
+            let minX = min(ann.startPoint.x, ann.endPoint.x)
+            let maxX = max(ann.startPoint.x, ann.endPoint.x)
+            let minY = min(ann.startPoint.y, ann.endPoint.y)
+            let maxY = max(ann.startPoint.y, ann.endPoint.y)
+
+            let tl = imagePointToViewPoint(CGPoint(x: minX, y: minY))
+            let tr = imagePointToViewPoint(CGPoint(x: maxX, y: minY))
+            let bl = imagePointToViewPoint(CGPoint(x: minX, y: maxY))
+            let br = imagePointToViewPoint(CGPoint(x: maxX, y: maxY))
+
+            if hypot(viewPt.x - tl.x, viewPt.y - tl.y) <= hitRadius { return .rectTopLeft }
+            if hypot(viewPt.x - tr.x, viewPt.y - tr.y) <= hitRadius { return .rectTopRight }
+            if hypot(viewPt.x - bl.x, viewPt.y - bl.y) <= hitRadius { return .rectBottomLeft }
+            if hypot(viewPt.x - br.x, viewPt.y - br.y) <= hitRadius { return .rectBottomRight }
+
+        default:
+            break
+        }
+        return .none
+    }
+
+    private func arrowMidpointView(_ ann: CanvasAnnotation) -> NSPoint {
+        if let cp = ann.controlPoint {
+            let peak = CGPoint(
+                x: 0.25 * ann.startPoint.x + 0.5 * cp.x + 0.25 * ann.endPoint.x,
+                y: 0.25 * ann.startPoint.y + 0.5 * cp.y + 0.25 * ann.endPoint.y
+            )
+            return imagePointToViewPoint(peak)
+        }
+        return imagePointToViewPoint(CGPoint(x: (ann.startPoint.x + ann.endPoint.x) * 0.5, y: (ann.startPoint.y + ann.endPoint.y) * 0.5))
+    }
+
     private func topAnnotationIndex(at pt: CGPoint) -> Int? {
         for (index, ann) in state.annotations.enumerated().reversed() {
             if isPoint(pt, near: ann) { return index }
@@ -1542,19 +1644,19 @@ public class ScreenshotEditorCanvasNSView: NSView {
         let threshold: CGFloat = 14.0 / max(0.5, effectiveScale())
         switch ann.tool {
         case .numberedPin:
-            return hypot(pt.x - ann.startPoint.x, pt.y - ann.startPoint.y) <= threshold + 10
+            return hypot(pt.x - ann.startPoint.x, pt.y - ann.startPoint.y) <= threshold + 12
         case .text:
-            let cardW = max(50, CGFloat(ann.text.count) * 7.5 + 16)
-            let rect = CGRect(x: ann.startPoint.x - 6, y: ann.startPoint.y - 26, width: cardW + 12, height: 34)
-            return rect.contains(pt)
-        case .distance, .arrow:
-            let p1 = ann.startPoint, p2 = ann.endPoint
-            let l2 = pow(p2.x - p1.x, 2) + pow(p2.y - p1.y, 2)
-            if l2 == 0 { return hypot(pt.x - p1.x, pt.y - p1.y) <= threshold }
-            let t = max(0, min(1, ((pt.x - p1.x) * (p2.x - p1.x) + (pt.y - p1.y) * (p2.y - p1.y)) / l2))
-            let proj = CGPoint(x: p1.x + t * (p2.x - p1.x), y: p1.y + t * (p2.y - p1.y))
-            return hypot(pt.x - proj.x, pt.y - proj.y) <= threshold
-        case .rectangle, .roundedRect, .blur:
+            return AnnotationRenderer.textImageBounds(for: ann).insetBy(dx: -8, dy: -8).contains(pt)
+        case .distance:
+            return distanceFromPoint(pt, toSegmentStart: ann.startPoint, end: ann.endPoint) <= threshold
+        case .arrow:
+            if let cp = ann.controlPoint {
+                let d1 = distanceFromPoint(pt, toSegmentStart: ann.startPoint, end: cp)
+                let d2 = distanceFromPoint(pt, toSegmentStart: cp, end: ann.endPoint)
+                return min(d1, d2) <= threshold + 6
+            }
+            return distanceFromPoint(pt, toSegmentStart: ann.startPoint, end: ann.endPoint) <= threshold + 4
+        case .rectangle, .blur:
             let r = CGRect(
                 x: min(ann.startPoint.x, ann.endPoint.x),
                 y: min(ann.startPoint.y, ann.endPoint.y),
@@ -1564,9 +1666,17 @@ public class ScreenshotEditorCanvasNSView: NSView {
             return r.contains(pt)
         case .pencil:
             return ann.pathPoints.contains { hypot(pt.x - $0.x, pt.y - $0.y) <= threshold }
-        default:
+        case .pointer:
             return false
         }
+    }
+
+    private func distanceFromPoint(_ pt: CGPoint, toSegmentStart p1: CGPoint, end p2: CGPoint) -> CGFloat {
+        let l2 = pow(p2.x - p1.x, 2) + pow(p2.y - p1.y, 2)
+        if l2 == 0 { return hypot(pt.x - p1.x, pt.y - p1.y) }
+        let t = max(0, min(1, ((pt.x - p1.x) * (p2.x - p1.x) + (pt.y - p1.y) * (p2.y - p1.y)) / l2))
+        let proj = CGPoint(x: p1.x + t * (p2.x - p1.x), y: p1.y + t * (p2.y - p1.y))
+        return hypot(pt.x - proj.x, pt.y - proj.y)
     }
 
     // MARK: - Core Drawing Routine
@@ -1574,14 +1684,12 @@ public class ScreenshotEditorCanvasNSView: NSView {
         super.draw(dirtyRect)
         guard let ctx = NSGraphicsContext.current?.cgContext else { return }
 
-        // 1. Background Checkerboard
         drawCheckerboard(in: bounds, ctx: ctx)
 
         guard let img = state.image else { return }
         let imgRect = imageDisplayRect()
         let effScale = effectiveScale()
 
-        // 2. Base Image (crisp pixel grid interpolation when zoomed >= 300%)
         ctx.saveGState()
         if !state.hasEmbeddedShadow {
             ctx.setShadow(offset: CGSize(width: 0, height: -6), blur: 14, color: NSColor.black.withAlphaComponent(0.22).cgColor)
@@ -1590,27 +1698,106 @@ public class ScreenshotEditorCanvasNSView: NSView {
         img.draw(in: imgRect)
         ctx.restoreGState()
 
-        // Subtle Pixel Grid at >= 300% Zoom for surgical pixel inspection
         if effScale >= 3.0 {
             drawPixelGrid(in: imgRect, scale: effScale, ctx: ctx)
         }
 
-        // 3. Committed Vector Annotations
+        let mapper = AnnotationRenderer.Mapper(
+            toCanvasPoint: { [unowned self] in self.imagePointToViewPoint($0) },
+            scale: effScale,
+            imageCanvasRect: imgRect
+        )
+        let auditUnit = SettingsManager.shared.gridAuditUnit
+
         for (index, ann) in state.annotations.enumerated() {
-            drawAnnotation(ann, isSelected: index == state.selectedAnnotationIndex, in: ctx, blurredSource: cachedBlurredNSImage, imageDisplayRect: imgRect)
+            AnnotationRenderer.draw(ann, mapper: mapper, blurredImage: cachedBlurredNSImage, auditUnit: auditUnit, in: ctx)
+            if index == state.selectedAnnotationIndex {
+                drawSelectionHandles(for: ann, mapper: mapper, in: ctx)
+            }
         }
 
-        // 4. Smart Hover Preview (when hovering with Dimension tool or holding Option)
         if let span = hoverSmartSpan, liveAnnotation == nil {
             drawSmartHoverGuides(span: span, in: ctx)
         }
 
-        // 5. Live Magnetic Snap Extension Guides while dragging
         drawActiveSnapExtensionGuides(in: ctx, imgRect: imgRect)
 
-        // 6. Active Live Drag Annotation
         if let live = liveAnnotation {
-            drawAnnotation(live, isSelected: false, in: ctx, blurredSource: cachedBlurredNSImage, imageDisplayRect: imgRect)
+            AnnotationRenderer.draw(live, mapper: mapper, blurredImage: cachedBlurredNSImage, auditUnit: auditUnit, in: ctx)
+        }
+    }
+
+    private func drawSelectionHandles(for ann: CanvasAnnotation, mapper: AnnotationRenderer.Mapper, in ctx: CGContext) {
+        let accent = NSColor(red: 10/255, green: 132/255, blue: 255/255, alpha: 1.0)
+
+        func drawSquareHandle(at pt: NSPoint) {
+            let r = NSRect(x: pt.x - 4, y: pt.y - 4, width: 8, height: 8)
+            NSColor.white.setFill()
+            let p = NSBezierPath(roundedRect: r, xRadius: 2, yRadius: 2)
+            p.fill()
+            accent.setStroke()
+            p.lineWidth = 1.5
+            p.stroke()
+        }
+
+        func drawCircleHandle(at pt: NSPoint) {
+            let r = NSRect(x: pt.x - 4, y: pt.y - 4, width: 8, height: 8)
+            NSColor.white.setFill()
+            let p = NSBezierPath(ovalIn: r)
+            p.fill()
+            accent.setStroke()
+            p.lineWidth = 1.5
+            p.stroke()
+        }
+
+        switch ann.tool {
+        case .arrow:
+            drawSquareHandle(at: mapper.toCanvasPoint(ann.startPoint))
+            drawSquareHandle(at: mapper.toCanvasPoint(ann.endPoint))
+            drawCircleHandle(at: arrowMidpointView(ann))
+
+        case .distance:
+            drawSquareHandle(at: mapper.toCanvasPoint(ann.startPoint))
+            drawSquareHandle(at: mapper.toCanvasPoint(ann.endPoint))
+
+        case .rectangle, .blur:
+            let minX = min(ann.startPoint.x, ann.endPoint.x)
+            let maxX = max(ann.startPoint.x, ann.endPoint.x)
+            let minY = min(ann.startPoint.y, ann.endPoint.y)
+            let maxY = max(ann.startPoint.y, ann.endPoint.y)
+            drawSquareHandle(at: mapper.toCanvasPoint(CGPoint(x: minX, y: minY)))
+            drawSquareHandle(at: mapper.toCanvasPoint(CGPoint(x: maxX, y: minY)))
+            drawSquareHandle(at: mapper.toCanvasPoint(CGPoint(x: minX, y: maxY)))
+            drawSquareHandle(at: mapper.toCanvasPoint(CGPoint(x: maxX, y: maxY)))
+
+        case .text:
+            let imgBox = AnnotationRenderer.textImageBounds(for: ann)
+            let tl = mapper.toCanvasPoint(imgBox.origin)
+            let br = mapper.toCanvasPoint(CGPoint(x: imgBox.maxX, y: imgBox.maxY))
+            let selR = AnnotationRenderer.normalizedRect(from: tl, to: br).insetBy(dx: -5, dy: -5)
+            ctx.saveGState()
+            ctx.setLineDash(phase: 0, lengths: [4, 4])
+            ctx.setStrokeColor(accent.cgColor)
+            ctx.setLineWidth(1.0)
+            ctx.stroke(selR)
+            ctx.restoreGState()
+
+        default:
+            let b = CGRect(
+                x: min(ann.startPoint.x, ann.endPoint.x),
+                y: min(ann.startPoint.y, ann.endPoint.y),
+                width: max(20, abs(ann.endPoint.x - ann.startPoint.x)),
+                height: max(20, abs(ann.endPoint.y - ann.startPoint.y))
+            )
+            let vMin = mapper.toCanvasPoint(b.origin)
+            let vMax = mapper.toCanvasPoint(CGPoint(x: b.maxX, y: b.maxY))
+            let selR = AnnotationRenderer.normalizedRect(from: vMin, to: vMax).insetBy(dx: -6, dy: -6)
+            ctx.saveGState()
+            ctx.setLineDash(phase: 0, lengths: [4, 4])
+            ctx.setStrokeColor(accent.cgColor)
+            ctx.setLineWidth(1.0)
+            ctx.stroke(selR)
+            ctx.restoreGState()
         }
     }
 
@@ -1641,8 +1828,7 @@ public class ScreenshotEditorCanvasNSView: NSView {
 
     private func drawSmartHoverGuides(span: PixelInspectBuffer.SmartSpan, in ctx: CGContext) {
         let auditUnit = SettingsManager.shared.gridAuditUnit
-        let accent = NSColor(red: 10/255, green: 132/255, blue: 255/255, alpha: 0.90)
-        let amber = NSColor(red: 255/255, green: 159/255, blue: 10/255, alpha: 0.95)
+        let accent = state.rulerColor
 
         let vOrigin = imagePointToViewPoint(span.originPt)
         let vLeft = imagePointToViewPoint(CGPoint(x: span.leftX, y: span.originPt.y))
@@ -1657,40 +1843,29 @@ public class ScreenshotEditorCanvasNSView: NSView {
         ctx.setLineDash(phase: 0, lengths: [3, 3])
         ctx.setLineWidth(1.2)
 
-        // Horizontal ray guide
-        if hDist >= 4 && CGFloat(hDist) < state.imageSize.width * 0.92 {
-            let hOffGrid = auditUnit > 1 && (hDist % auditUnit != 0)
-            let hColor = hOffGrid ? amber : accent
-            ctx.setStrokeColor(hColor.cgColor)
+        if hDist >= 6 && hDist <= 420 && CGFloat(hDist) < state.imageSize.width * 0.85 {
+            let hOffGrid = auditUnit > 1 && hDist <= 96 && (hDist % auditUnit != 0)
+            ctx.setStrokeColor(accent.cgColor)
             ctx.strokeLineSegments(between: [vLeft, vRight])
-
-            // Edge perpendicular ticks
             ctx.setLineDash(phase: 0, lengths: [])
             ctx.strokeLineSegments(between: [
                 CGPoint(x: vLeft.x, y: vOrigin.y - 6), CGPoint(x: vLeft.x, y: vOrigin.y + 6),
                 CGPoint(x: vRight.x, y: vOrigin.y - 6), CGPoint(x: vRight.x, y: vOrigin.y + 6)
             ])
-
-            let label = hOffGrid ? "↔ \(hDist)px" : "↔ \(hDist)px"
-            drawPillBadge(text: label, at: CGPoint(x: (vLeft.x + vRight.x)/2, y: vOrigin.y - 16), fill: hColor)
+            AnnotationRenderer.drawMeasurementPill(text: "↔ \(hDist)px", at: CGPoint(x: (vLeft.x + vRight.x)/2, y: vOrigin.y - 16), fill: accent, showOffGridDot: hOffGrid)
         }
 
-        // Vertical ray guide
-        if vDist >= 4 && CGFloat(vDist) < state.imageSize.height * 0.92 {
-            let vOffGrid = auditUnit > 1 && (vDist % auditUnit != 0)
-            let vColor = vOffGrid ? amber : accent
+        if vDist >= 6 && vDist <= 420 && CGFloat(vDist) < state.imageSize.height * 0.85 {
+            let vOffGrid = auditUnit > 1 && vDist <= 96 && (vDist % auditUnit != 0)
             ctx.setLineDash(phase: 0, lengths: [3, 3])
-            ctx.setStrokeColor(vColor.cgColor)
+            ctx.setStrokeColor(accent.cgColor)
             ctx.strokeLineSegments(between: [vTop, vBottom])
-
             ctx.setLineDash(phase: 0, lengths: [])
             ctx.strokeLineSegments(between: [
                 CGPoint(x: vOrigin.x - 6, y: vTop.y), CGPoint(x: vOrigin.x + 6, y: vTop.y),
                 CGPoint(x: vOrigin.x - 6, y: vBottom.y), CGPoint(x: vOrigin.x + 6, y: vBottom.y)
             ])
-
-            let label = "↕ \(vDist)px"
-            drawPillBadge(text: label, at: CGPoint(x: vOrigin.x + 28, y: (vTop.y + vBottom.y)/2), fill: vColor)
+            AnnotationRenderer.drawMeasurementPill(text: "↕ \(vDist)px", at: CGPoint(x: vOrigin.x + 30, y: (vTop.y + vBottom.y)/2), fill: accent, showOffGridDot: vOffGrid)
         }
         ctx.restoreGState()
     }
@@ -1698,7 +1873,7 @@ public class ScreenshotEditorCanvasNSView: NSView {
     private func drawActiveSnapExtensionGuides(in ctx: CGContext, imgRect: NSRect) {
         guard !activeSnapGuides.verticalX.isEmpty || !activeSnapGuides.horizontalY.isEmpty else { return }
         ctx.saveGState()
-        ctx.setStrokeColor(NSColor(red: 10/255, green: 132/255, blue: 255/255, alpha: 0.45).cgColor)
+        ctx.setStrokeColor(state.rulerColor.withAlphaComponent(0.45).cgColor)
         ctx.setLineDash(phase: 0, lengths: [3, 3])
         ctx.setLineWidth(1.0)
 
@@ -1711,211 +1886,6 @@ public class ScreenshotEditorCanvasNSView: NSView {
             ctx.strokeLineSegments(between: [CGPoint(x: imgRect.minX, y: vy), CGPoint(x: imgRect.maxX, y: vy)])
         }
         ctx.restoreGState()
-    }
-
-    private func drawPillBadge(text: String, at center: CGPoint, fill: NSColor) {
-        let str = text as NSString
-        let attrs: [NSAttributedString.Key: Any] = [
-            .font: NSFont.monospacedDigitSystemFont(ofSize: 10, weight: .bold),
-            .foregroundColor: NSColor.white
-        ]
-        let s = str.size(withAttributes: attrs)
-        let r = NSRect(x: center.x - (s.width + 12)/2, y: center.y - 9, width: s.width + 12, height: 18)
-        fill.setFill()
-        NSBezierPath(roundedRect: r, xRadius: 4, yRadius: 4).fill()
-        str.draw(at: NSPoint(x: r.origin.x + 6, y: r.origin.y + 2.5), withAttributes: attrs)
-    }
-
-    private func drawAnnotation(_ ann: CanvasAnnotation, isSelected: Bool, in ctx: CGContext, blurredSource: NSImage?, imageDisplayRect imgRect: NSRect) {
-        let ink = ann.color
-        let vStart = imagePointToViewPoint(ann.startPoint)
-        let vEnd = imagePointToViewPoint(ann.endPoint)
-        let auditUnit = SettingsManager.shared.gridAuditUnit
-
-        switch ann.tool {
-        case .distance:
-            // Strictly vertical or horizontal pixel measurement
-            let dx = abs(ann.endPoint.x - ann.startPoint.x)
-            let dy = abs(ann.endPoint.y - ann.startPoint.y)
-            let dist = Int(round(max(dx, dy)))
-            let isOffGrid = (auditUnit > 1) && (dist > 0) && (dist % auditUnit != 0)
-            let badgeColor = isOffGrid ? DesignerInk.amber.nsColor : ink
-
-            ctx.setStrokeColor(badgeColor.cgColor)
-            ctx.setLineWidth(1.6)
-            ctx.strokeLineSegments(between: [vStart, vEnd])
-
-            let tickLen: CGFloat = 7
-            let angle = atan2(vEnd.y - vStart.y, vEnd.x - vStart.x)
-            let perp = angle + .pi / 2
-
-            ctx.strokeLineSegments(between: [
-                CGPoint(x: vStart.x + cos(perp) * tickLen, y: vStart.y + sin(perp) * tickLen),
-                CGPoint(x: vStart.x - cos(perp) * tickLen, y: vStart.y - sin(perp) * tickLen),
-                CGPoint(x: vEnd.x + cos(perp) * tickLen, y: vEnd.y + sin(perp) * tickLen),
-                CGPoint(x: vEnd.x - cos(perp) * tickLen, y: vEnd.y - sin(perp) * tickLen)
-            ])
-
-            let mid = CGPoint(x: (vStart.x + vEnd.x) / 2, y: (vStart.y + vEnd.y) / 2)
-            let label = isOffGrid ? "\(dist)px!" : "\(dist)px"
-            drawPillBadge(text: label, at: mid, fill: badgeColor)
-
-        case .arrow:
-            ctx.setStrokeColor(ink.cgColor)
-            ctx.setLineWidth(2.2)
-            ctx.strokeLineSegments(between: [vStart, vEnd])
-
-            let angle = atan2(vEnd.y - vStart.y, vEnd.x - vStart.x)
-            let headLen: CGFloat = 11.0
-            let p1 = CGPoint(x: vEnd.x - headLen * cos(angle - .pi / 6), y: vEnd.y - headLen * sin(angle - .pi / 6))
-            let p2 = CGPoint(x: vEnd.x - headLen * cos(angle + .pi / 6), y: vEnd.y - headLen * sin(angle + .pi / 6))
-
-            ctx.setFillColor(ink.cgColor)
-            ctx.beginPath()
-            ctx.move(to: vEnd)
-            ctx.addLine(to: p1)
-            ctx.addLine(to: p2)
-            ctx.closePath()
-            ctx.fillPath()
-
-        case .rectangle:
-            let r = normalizedRect(from: vStart, to: vEnd)
-            ctx.setStrokeColor(ink.cgColor)
-            ctx.setLineWidth(1.8)
-            ctx.stroke(r)
-
-            let imgW = Int(round(abs(ann.endPoint.x - ann.startPoint.x)))
-            let imgH = Int(round(abs(ann.endPoint.y - ann.startPoint.y)))
-            let tagText = "\(imgW) × \(imgH) px" as NSString
-            let attrs: [NSAttributedString.Key: Any] = [
-                .font: NSFont.monospacedDigitSystemFont(ofSize: 9.5, weight: .bold),
-                .foregroundColor: NSColor.white
-            ]
-            let size = tagText.size(withAttributes: attrs)
-            let tagRect = NSRect(x: r.minX, y: r.maxY >= 20 ? r.maxY - 18 : r.minY, width: size.width + 10, height: 16)
-            NSColor.black.withAlphaComponent(0.86).setFill()
-            NSBezierPath(roundedRect: tagRect, xRadius: 3, yRadius: 3).fill()
-            tagText.draw(at: NSPoint(x: tagRect.origin.x + 5, y: tagRect.origin.y + 2), withAttributes: attrs)
-
-        case .roundedRect:
-            let r = normalizedRect(from: vStart, to: vEnd)
-            let path = NSBezierPath(roundedRect: r, xRadius: 8, yRadius: 8)
-            ink.setStroke()
-            path.lineWidth = 1.8
-            path.stroke()
-
-            let tagText = "r: 8px" as NSString
-            let attrs: [NSAttributedString.Key: Any] = [
-                .font: NSFont.systemFont(ofSize: 9.5, weight: .bold),
-                .foregroundColor: NSColor.white
-            ]
-            let size = tagText.size(withAttributes: attrs)
-            let tagRect = NSRect(x: r.minX, y: r.maxY >= 20 ? r.maxY - 18 : r.minY, width: size.width + 10, height: 16)
-            NSColor.black.withAlphaComponent(0.86).setFill()
-            NSBezierPath(roundedRect: tagRect, xRadius: 3, yRadius: 3).fill()
-            tagText.draw(at: NSPoint(x: tagRect.origin.x + 5, y: tagRect.origin.y + 2), withAttributes: attrs)
-
-        case .numberedPin:
-            let center = vStart
-            let circleRect = NSRect(x: center.x - 11, y: center.y - 11, width: 22, height: 22)
-            ink.setFill()
-            let circlePath = NSBezierPath(ovalIn: circleRect)
-            circlePath.fill()
-
-            NSColor.white.setStroke()
-            circlePath.lineWidth = 1.6
-            circlePath.stroke()
-
-            let numText = "\(ann.number)" as NSString
-            let attrs: [NSAttributedString.Key: Any] = [
-                .font: NSFont.systemFont(ofSize: 11, weight: .bold),
-                .foregroundColor: NSColor.white
-            ]
-            let size = numText.size(withAttributes: attrs)
-            numText.draw(at: NSPoint(x: center.x - size.width / 2, y: center.y - size.height / 2), withAttributes: attrs)
-
-        case .text:
-            let cardText = (ann.text.isEmpty ? "Note" : ann.text) as NSString
-            let attrs: [NSAttributedString.Key: Any] = [
-                .font: NSFont.systemFont(ofSize: 11.5, weight: .medium),
-                .foregroundColor: NSColor.white
-            ]
-            let size = cardText.size(withAttributes: attrs)
-            let cardRect = NSRect(x: vStart.x, y: vStart.y, width: size.width + 16, height: size.height + 8)
-
-            NSColor.black.withAlphaComponent(0.86).setFill()
-            let cardPath = NSBezierPath(roundedRect: cardRect, xRadius: 6, yRadius: 6)
-            cardPath.fill()
-            ink.setStroke()
-            cardPath.lineWidth = 1.0
-            cardPath.stroke()
-            cardText.draw(at: NSPoint(x: cardRect.origin.x + 8, y: cardRect.origin.y + 4), withAttributes: attrs)
-
-        case .pencil:
-            if !ann.pathPoints.isEmpty {
-                let path = NSBezierPath()
-                let pts = ann.pathPoints.map { imagePointToViewPoint($0) }
-                path.move(to: pts[0])
-                for pt in pts.dropFirst() { path.line(to: pt) }
-                path.lineWidth = 6.0 * max(0.7, effectiveScale())
-                path.lineCapStyle = .round
-                path.lineJoinStyle = .round
-                ink.withAlphaComponent(0.35).setStroke()
-                path.stroke()
-            }
-
-        case .blur:
-            let r = normalizedRect(from: vStart, to: vEnd)
-            let path = NSBezierPath(roundedRect: r, xRadius: 6, yRadius: 6)
-            if let mosaic = blurredSource {
-                ctx.saveGState()
-                path.addClip()
-                ctx.interpolationQuality = .none
-                mosaic.draw(in: imgRect)
-                NSColor.labelColor.withAlphaComponent(0.05).setFill()
-                path.fill()
-                ctx.restoreGState()
-                NSColor.labelColor.withAlphaComponent(0.14).setStroke()
-                path.lineWidth = 0.8
-                path.stroke()
-            } else {
-                NSColor.black.withAlphaComponent(0.70).setFill()
-                path.fill()
-            }
-
-        default:
-            break
-        }
-
-        if isSelected {
-            let b = boundingBox(for: ann)
-            let vMin = imagePointToViewPoint(b.origin)
-            let vMax = imagePointToViewPoint(CGPoint(x: b.maxX, y: b.maxY))
-            let selR = normalizedRect(from: vMin, to: vMax).insetBy(dx: -6, dy: -6)
-
-            ctx.saveGState()
-            ctx.setLineDash(phase: 0, lengths: [4, 4])
-            ctx.setStrokeColor(ink.cgColor)
-            ctx.setLineWidth(1.0)
-            ctx.stroke(selR)
-            ctx.restoreGState()
-        }
-    }
-
-    private func boundingBox(for ann: CanvasAnnotation) -> CGRect {
-        var minX = min(ann.startPoint.x, ann.endPoint.x)
-        var minY = min(ann.startPoint.y, ann.endPoint.y)
-        var maxX = max(ann.startPoint.x, ann.endPoint.x)
-        var maxY = max(ann.startPoint.y, ann.endPoint.y)
-        for p in ann.pathPoints {
-            minX = min(minX, p.x); minY = min(minY, p.y)
-            maxX = max(maxX, p.x); maxY = max(maxY, p.y)
-        }
-        if ann.tool == .text {
-            let w = max(50, CGFloat(ann.text.count) * 7.5 + 16)
-            return CGRect(x: minX, y: minY - 22, width: w, height: 24)
-        }
-        return CGRect(x: minX, y: minY, width: max(20, maxX - minX), height: max(20, maxY - minY))
     }
 
     private func drawCheckerboard(in rect: NSRect, ctx: CGContext) {
@@ -1936,15 +1906,6 @@ public class ScreenshotEditorCanvasNSView: NSView {
         }
     }
 
-    private func normalizedRect(from p1: NSPoint, to p2: NSPoint) -> NSRect {
-        let x = min(p1.x, p2.x)
-        let y = min(p1.y, p2.y)
-        let w = abs(p1.x - p2.x)
-        let h = abs(p1.y - p2.y)
-        return NSRect(x: x, y: y, width: max(1, w), height: max(1, h))
-    }
-
-    // MARK: - CoreImage Mosaic Redaction Builder
     private static func buildPixellatedImage(from image: NSImage) -> NSImage? {
         guard let cg = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return nil }
         let ciImage = CIImage(cgImage: cg)
@@ -1957,7 +1918,7 @@ public class ScreenshotEditorCanvasNSView: NSView {
         return NSImage(cgImage: resultCG, size: image.size)
     }
 
-    // MARK: - Flattened Image Generation for Copy / Save
+    // MARK: - Unified Export Renderer (Zero Duplicated Drawing Code!)
     public static func renderFlattenedImage(state: ScreenshotEditorState) -> NSImage? {
         guard let baseImage = state.image else { return nil }
         let size = baseImage.size
@@ -1982,159 +1943,18 @@ public class ScreenshotEditorCanvasNSView: NSView {
         NSGraphicsContext.saveGraphicsState()
         NSGraphicsContext.current = gCtx
 
-        // Draw base image at full native pixels
         baseImage.draw(in: NSRect(origin: .zero, size: NSSize(width: pixelW, height: pixelH)))
-
-        // Scale context to draw vector annotations in logical point space
         ctx.scaleBy(x: scaleX, y: scaleY)
 
+        let exportMapper = AnnotationRenderer.Mapper(
+            toCanvasPoint: { pt in CGPoint(x: pt.x, y: size.height - pt.y) },
+            scale: 1.0,
+            imageCanvasRect: NSRect(origin: .zero, size: size)
+        )
         let auditUnit = SettingsManager.shared.gridAuditUnit
 
         for ann in state.annotations {
-            let ink = ann.color
-            let p1 = CGPoint(x: ann.startPoint.x, y: size.height - ann.startPoint.y)
-            let p2 = CGPoint(x: ann.endPoint.x, y: size.height - ann.endPoint.y)
-
-            switch ann.tool {
-            case .distance:
-                let dx = abs(ann.endPoint.x - ann.startPoint.x)
-                let dy = abs(ann.endPoint.y - ann.startPoint.y)
-                let dist = Int(round(max(dx, dy)))
-                let isOffGrid = (auditUnit > 1) && (dist > 0) && (dist % auditUnit != 0)
-                let badgeColor = isOffGrid ? DesignerInk.amber.nsColor : ink
-
-                ctx.setStrokeColor(badgeColor.cgColor)
-                ctx.setLineWidth(1.6)
-                ctx.strokeLineSegments(between: [p1, p2])
-
-                let tickLen: CGFloat = 7
-                let angle = atan2(p2.y - p1.y, p2.x - p1.x)
-                let perp = angle + .pi / 2
-                ctx.strokeLineSegments(between: [
-                    CGPoint(x: p1.x + cos(perp) * tickLen, y: p1.y + sin(perp) * tickLen),
-                    CGPoint(x: p1.x - cos(perp) * tickLen, y: p1.y - sin(perp) * tickLen),
-                    CGPoint(x: p2.x + cos(perp) * tickLen, y: p2.y + sin(perp) * tickLen),
-                    CGPoint(x: p2.x - cos(perp) * tickLen, y: p2.y - sin(perp) * tickLen)
-                ])
-
-                let mid = CGPoint(x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2)
-                let text = (isOffGrid ? "\(dist)px!" : "\(dist)px") as NSString
-                let attrs: [NSAttributedString.Key: Any] = [
-                    .font: NSFont.monospacedDigitSystemFont(ofSize: 10, weight: .bold),
-                    .foregroundColor: NSColor.white
-                ]
-                let s = text.size(withAttributes: attrs)
-                let badgeRect = NSRect(x: mid.x - (s.width + 12)/2, y: mid.y - 9, width: s.width + 12, height: 18)
-                badgeColor.setFill()
-                NSBezierPath(roundedRect: badgeRect, xRadius: 4, yRadius: 4).fill()
-                text.draw(at: NSPoint(x: badgeRect.origin.x + 6, y: badgeRect.origin.y + 2.5), withAttributes: attrs)
-
-            case .arrow:
-                ctx.setStrokeColor(ink.cgColor)
-                ctx.setLineWidth(2.2)
-                ctx.strokeLineSegments(between: [p1, p2])
-
-                let angle = atan2(p2.y - p1.y, p2.x - p1.x)
-                let headLen: CGFloat = 11.0
-                let a1 = CGPoint(x: p2.x - headLen * cos(angle - .pi / 6), y: p2.y - headLen * sin(angle - .pi / 6))
-                let a2 = CGPoint(x: p2.x - headLen * cos(angle + .pi / 6), y: p2.y - headLen * sin(angle + .pi / 6))
-
-                ctx.setFillColor(ink.cgColor)
-                ctx.beginPath()
-                ctx.move(to: p2)
-                ctx.addLine(to: a1)
-                ctx.addLine(to: a2)
-                ctx.closePath()
-                ctx.fillPath()
-
-            case .rectangle:
-                let r = NSRect(x: min(p1.x, p2.x), y: min(p1.y, p2.y), width: abs(p1.x - p2.x), height: abs(p1.y - p2.y))
-                ctx.setStrokeColor(ink.cgColor)
-                ctx.setLineWidth(1.8)
-                ctx.stroke(r)
-
-                let imgW = Int(round(abs(ann.endPoint.x - ann.startPoint.x)))
-                let imgH = Int(round(abs(ann.endPoint.y - ann.startPoint.y)))
-                let tag = "\(imgW) × \(imgH) px" as NSString
-                let attrs: [NSAttributedString.Key: Any] = [
-                    .font: NSFont.monospacedDigitSystemFont(ofSize: 9.5, weight: .bold),
-                    .foregroundColor: NSColor.white
-                ]
-                let s = tag.size(withAttributes: attrs)
-                let tr = NSRect(x: r.minX, y: r.maxY >= 20 ? r.maxY - 18 : r.minY, width: s.width + 10, height: 16)
-                NSColor.black.withAlphaComponent(0.86).setFill()
-                NSBezierPath(roundedRect: tr, xRadius: 3, yRadius: 3).fill()
-                tag.draw(at: NSPoint(x: tr.origin.x + 5, y: tr.origin.y + 2), withAttributes: attrs)
-
-            case .roundedRect:
-                let r = NSRect(x: min(p1.x, p2.x), y: min(p1.y, p2.y), width: abs(p1.x - p2.x), height: abs(p1.y - p2.y))
-                ink.setStroke()
-                let path = NSBezierPath(roundedRect: r, xRadius: 8, yRadius: 8)
-                path.lineWidth = 1.8
-                path.stroke()
-
-            case .numberedPin:
-                let r = NSRect(x: p1.x - 11, y: p1.y - 11, width: 22, height: 22)
-                ink.setFill()
-                let circle = NSBezierPath(ovalIn: r)
-                circle.fill()
-                NSColor.white.setStroke()
-                circle.lineWidth = 1.6
-                circle.stroke()
-
-                let text = "\(ann.number)" as NSString
-                let attrs: [NSAttributedString.Key: Any] = [
-                    .font: NSFont.systemFont(ofSize: 11, weight: .bold),
-                    .foregroundColor: NSColor.white
-                ]
-                let s = text.size(withAttributes: attrs)
-                text.draw(at: NSPoint(x: p1.x - s.width / 2, y: p1.y - s.height / 2), withAttributes: attrs)
-
-            case .text:
-                let text = (ann.text.isEmpty ? "Note" : ann.text) as NSString
-                let attrs: [NSAttributedString.Key: Any] = [
-                    .font: NSFont.systemFont(ofSize: 11.5, weight: .medium),
-                    .foregroundColor: NSColor.white
-                ]
-                let s = text.size(withAttributes: attrs)
-                let r = NSRect(x: p1.x, y: p1.y, width: s.width + 16, height: s.height + 8)
-                NSColor.black.withAlphaComponent(0.86).setFill()
-                let card = NSBezierPath(roundedRect: r, xRadius: 6, yRadius: 6)
-                card.fill()
-                ink.setStroke()
-                card.lineWidth = 1.0
-                card.stroke()
-                text.draw(at: NSPoint(x: r.origin.x + 8, y: r.origin.y + 4), withAttributes: attrs)
-
-            case .pencil:
-                if !ann.pathPoints.isEmpty {
-                    let path = NSBezierPath()
-                    let pts = ann.pathPoints.map { CGPoint(x: $0.x, y: size.height - $0.y) }
-                    path.move(to: pts[0])
-                    for pt in pts.dropFirst() { path.line(to: pt) }
-                    path.lineWidth = 6.0
-                    path.lineCapStyle = .round
-                    path.lineJoinStyle = .round
-                    ink.withAlphaComponent(0.35).setStroke()
-                    path.stroke()
-                }
-
-            case .blur:
-                let r = NSRect(x: min(p1.x, p2.x), y: min(p1.y, p2.y), width: abs(p1.x - p2.x), height: abs(p1.y - p2.y))
-                let path = NSBezierPath(roundedRect: r, xRadius: 6, yRadius: 6)
-                if let mosaic = mosaicImage {
-                    ctx.saveGState()
-                    path.addClip()
-                    mosaic.draw(in: NSRect(origin: .zero, size: size))
-                    ctx.restoreGState()
-                } else {
-                    NSColor.black.withAlphaComponent(0.75).setFill()
-                    path.fill()
-                }
-
-            default:
-                break
-            }
+            AnnotationRenderer.draw(ann, mapper: exportMapper, blurredImage: mosaicImage, auditUnit: auditUnit, in: ctx)
         }
 
         NSGraphicsContext.restoreGraphicsState()
