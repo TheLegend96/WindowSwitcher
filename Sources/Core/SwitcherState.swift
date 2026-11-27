@@ -144,12 +144,14 @@ public class SwitcherState: ObservableObject {
         let list = filteredWindows
         guard !list.isEmpty else { return }
         selectedIndex = (selectedIndex + 1) % list.count
+        SettingsManager.shared.triggerSwitchFeedback(isCommit: false)
     }
 
     public func cycleBackward() {
         let list = filteredWindows
         guard !list.isEmpty else { return }
         selectedIndex = (selectedIndex - 1 + list.count) % list.count
+        SettingsManager.shared.triggerSwitchFeedback(isCommit: false)
     }
 
     public func moveDown() {
@@ -157,6 +159,7 @@ public class SwitcherState: ObservableObject {
         guard !list.isEmpty else { return }
         if SettingsManager.shared.switcherStyle == .titles {
             selectedIndex = (selectedIndex + 1) % list.count
+            SettingsManager.shared.triggerSwitchFeedback(isCommit: false)
             return
         }
         let count = list.count
@@ -169,6 +172,7 @@ public class SwitcherState: ObservableObject {
         }
         if selectedIndex + perRow < count {
             selectedIndex += perRow
+            SettingsManager.shared.triggerSwitchFeedback(isCommit: false)
         }
     }
 
@@ -177,6 +181,7 @@ public class SwitcherState: ObservableObject {
         guard !list.isEmpty else { return }
         if SettingsManager.shared.switcherStyle == .titles {
             selectedIndex = (selectedIndex - 1 + list.count) % list.count
+            SettingsManager.shared.triggerSwitchFeedback(isCommit: false)
             return
         }
         let count = list.count
@@ -189,6 +194,7 @@ public class SwitcherState: ObservableObject {
         }
         if selectedIndex - perRow >= 0 {
             selectedIndex -= perRow
+            SettingsManager.shared.triggerSwitchFeedback(isCommit: false)
         }
     }
 
@@ -197,6 +203,7 @@ public class SwitcherState: ObservableObject {
         let list = filteredWindows
         let currentIdx = selectedIndex
 
+        SettingsManager.shared.triggerSwitchFeedback(isCommit: true)
         dismiss()
 
         if currentIdx >= 0 && currentIdx < list.count {
@@ -209,6 +216,7 @@ public class SwitcherState: ObservableObject {
 
     public func commitSelection(for targetWindow: SwitcherWindow) {
         guard isVisible else { return }
+        SettingsManager.shared.triggerSwitchFeedback(isCommit: true)
         dismiss()
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
             WindowFocusManager.shared.focusWindow(targetWindow)

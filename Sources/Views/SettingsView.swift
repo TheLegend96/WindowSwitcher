@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import UniformTypeIdentifiers
 
 // MARK: - Settings Navigation Tabs
 
@@ -10,6 +11,8 @@ public enum SettingsTab: String, CaseIterable, Identifiable {
     case appearance = "Appearance"
     case apps = "Apps & Rules"
     case general = "General"
+    case privacy = "Privacy"
+    case about = "About"
 
     public var id: String { rawValue }
 
@@ -21,17 +24,21 @@ public enum SettingsTab: String, CaseIterable, Identifiable {
         case .appearance: return "paintbrush.fill"
         case .apps: return "square.grid.2x2.fill"
         case .general: return "gearshape.fill"
+        case .privacy: return "lock.fill"
+        case .about: return "info.circle.fill"
         }
     }
 
     public var badgeColor: Color {
         switch self {
-        case .screenshots: return Color(red: 0.039, green: 0.518, blue: 1.0)   // Apple System Blue #0A84FF
-        case .designerTools: return Color(red: 1.0, green: 0.584, blue: 0.0)   // Apple System Orange #FF9500
-        case .switcher: return Color(red: 0.369, green: 0.361, blue: 0.902)    // Apple System Indigo #5E5CE6
-        case .appearance: return Color(red: 1.0, green: 0.216, blue: 0.373)    // Apple System Pink/Rose #FF375F
-        case .apps: return Color(red: 0.188, green: 0.820, blue: 0.345)        // Apple System Green #30D158
-        case .general: return Color(red: 0.557, green: 0.557, blue: 0.576)     // Apple System Gray #8E8E93
+        case .screenshots: return Color(red: 0.039, green: 0.518, blue: 1.0)    // System Blue
+        case .designerTools: return Color(red: 1.0, green: 0.584, blue: 0.0)    // System Orange
+        case .switcher: return Color(red: 0.369, green: 0.361, blue: 0.902)     // System Indigo
+        case .appearance: return Color(red: 1.0, green: 0.216, blue: 0.373)     // System Rose
+        case .apps: return Color(red: 0.188, green: 0.820, blue: 0.345)         // System Green
+        case .general: return Color(red: 0.431, green: 0.431, blue: 0.451)      // System Slate
+        case .privacy: return Color(red: 1.0, green: 0.231, blue: 0.188)        // System Red
+        case .about: return Color(red: 0.557, green: 0.557, blue: 0.576)        // System Gray
         }
     }
 
@@ -39,25 +46,12 @@ public enum SettingsTab: String, CaseIterable, Identifiable {
         self == .screenshots
     }
 
-    public var subtitle: String {
+    public var groupIndex: Int {
         switch self {
-        case .screenshots:
-            return "Capture frozen frames, active window shadows, and on-screen text."
-        case .designerTools:
-            return "Measure UI distances, verify grid rhythm, and inspect colors at pixel level."
-        case .switcher:
-            return "Configure trigger shortcuts, window ordering, and visibility filters."
-        case .appearance:
-            return "Choose your HUD layout style, sizing, theme, and glass acoustics."
-        case .apps:
-            return "Customize per-application switcher visibility and shortcut pass-through rules."
-        case .general:
-            return "Manage login launch, permissions, background caching, and updates."
+        case .screenshots, .designerTools: return 0
+        case .switcher, .appearance, .apps: return 1
+        case .general, .privacy, .about: return 2
         }
-    }
-
-    public var isSystemGroup: Bool {
-        self == .apps || self == .general
     }
 }
 
@@ -81,35 +75,35 @@ private struct SettingsSearchItem: Identifiable {
 }
 
 private let allSearchItems: [SettingsSearchItem] = [
-    SettingsSearchItem(title: "Area & Window Capture Shortcut", subtitle: "Freeze screen and drag an area or click any window", keywords: "screenshot option capture freeze shadow", tab: .screenshots),
-    SettingsSearchItem(title: "Active Window Shortcut", subtitle: "Snap the frontmost window immediately with shadow", keywords: "window capture active shadow", tab: .screenshots),
-    SettingsSearchItem(title: "Screen Text Recognition (OCR)", subtitle: "Copy detected text directly from any selected region", keywords: "ocr extract copy text", tab: .screenshots),
+    SettingsSearchItem(title: "Area & window capture shortcut", subtitle: "Freeze all displays and drag a box or click a window", keywords: "screenshot option capture freeze shadow", tab: .screenshots),
+    SettingsSearchItem(title: "Capture active window shortcut", subtitle: "Snap the frontmost window immediately with elevation shadow", keywords: "window capture active shadow", tab: .screenshots),
+    SettingsSearchItem(title: "Screen text recognition (OCR)", subtitle: "Copy detected text directly from any frozen region", keywords: "ocr extract copy text", tab: .screenshots),
     SettingsSearchItem(title: "Auto-open Designer Studio", subtitle: "Launch the canvas editor right after capture", keywords: "editor studio canvas workflow", tab: .screenshots),
-    SettingsSearchItem(title: "Play Camera Shutter Sound", subtitle: "Play audio feedback when capturing or saving", keywords: "sound audio shutter", tab: .screenshots),
+    SettingsSearchItem(title: "Play camera shutter sound", subtitle: "Play audio feedback on capture", keywords: "sound audio shutter", tab: .screenshots),
 
-    SettingsSearchItem(title: "Smart Distance & Edge Snapping", subtitle: "Snap vertical and horizontal rulers to buttons and borders", keywords: "ruler dimension snap measure distance", tab: .designerTools),
-    SettingsSearchItem(title: "Layout Grid Audit Unit", subtitle: "Flag spacings off the 4 px or 8 px layout grid", keywords: "4px 8px grid rhythm audit spacing", tab: .designerTools),
-    SettingsSearchItem(title: "Studio Keyboard Shortcuts", subtitle: "Reference keys for Ruler, Arrow, Text, Rectangle, Undo", keywords: "shortcuts keys arrow text rectangle undo", tab: .designerTools),
+    SettingsSearchItem(title: "Smart distance & edge snapping", subtitle: "Snap vertical and horizontal rulers to UI edges", keywords: "ruler dimension snap measure distance", tab: .designerTools),
+    SettingsSearchItem(title: "Spacing grid audit unit", subtitle: "Flag spacings off the 4 px or 8 px layout grid", keywords: "4px 8px grid rhythm audit spacing", tab: .designerTools),
+    SettingsSearchItem(title: "Studio keyboard shortcuts", subtitle: "Keys for Select, Ruler, Arrow, Text, Rectangle, Undo", keywords: "shortcuts keys arrow text rectangle undo", tab: .designerTools),
 
-    SettingsSearchItem(title: "Switcher Trigger Shortcut", subtitle: "Bind Option+Tab or replace macOS Command+Tab", keywords: "command option tab shortcut hotkey trigger", tab: .switcher),
-    SettingsSearchItem(title: "After Releasing Keys", subtitle: "Focus selected window or keep HUD open for inspection", keywords: "release focus hold keep open", tab: .switcher),
-    SettingsSearchItem(title: "Applications & Spaces Filtering", subtitle: "Show windows across all apps or current active Space", keywords: "filter spaces screens active apps", tab: .switcher),
-    SettingsSearchItem(title: "Window Visibility Flags", subtitle: "Include minimized, hidden, fullscreen, or windowless apps", keywords: "minimized hidden fullscreen no windows", tab: .switcher),
-    SettingsSearchItem(title: "Navigation Hotkeys", subtitle: "Arrow keys, Tab cycling, Q quit, W close window", keywords: "quit close arrows keyboard navigation", tab: .switcher),
+    SettingsSearchItem(title: "Switcher activation shortcut", subtitle: "Bind Option+Tab or replace macOS Command+Tab", keywords: "command option tab shortcut hotkey trigger", tab: .switcher),
+    SettingsSearchItem(title: "After releasing modifier", subtitle: "Focus window immediately or keep HUD open", keywords: "release focus hold keep open", tab: .switcher),
+    SettingsSearchItem(title: "Applications & Spaces scope", subtitle: "Filter windows across all apps or current active Space", keywords: "filter spaces screens active apps", tab: .switcher),
+    SettingsSearchItem(title: "Included window states", subtitle: "Minimized, hidden, fullscreen, or windowless apps", keywords: "minimized hidden fullscreen no windows", tab: .switcher),
 
-    SettingsSearchItem(title: "Switcher Layout Style", subtitle: "Thumbnails, App Icons, Window Titles, or Compact Cards", keywords: "thumbnails icons titles compact cards bento command tab", tab: .appearance),
-    SettingsSearchItem(title: "Tile Size & Color Theme", subtitle: "Small, Medium, or Large cards in System, Light, or Dark", keywords: "size small medium large theme light dark system", tab: .appearance),
-    SettingsSearchItem(title: "Accent Highlight Color", subtitle: "Customize selection border hex or Apple system tint", keywords: "color accent hex ring highlight", tab: .appearance),
-    SettingsSearchItem(title: "HUD Corner Curvature & Elevation", subtitle: "Adjust squircle radius, border stroke, and shadow depth", keywords: "corner radius curvature border shadow depth elevation", tab: .appearance),
-    SettingsSearchItem(title: "Multi-Monitor Placement", subtitle: "Choose active screen, cursor screen, menu bar, or all displays", keywords: "display monitor placement screen", tab: .appearance),
+    SettingsSearchItem(title: "Live switcher layout style", subtitle: "Thumbnails, App Icons, Window Titles, or Compact Cards", keywords: "thumbnails icons titles compact cards bento command tab", tab: .appearance),
+    SettingsSearchItem(title: "Tile size & color appearance", subtitle: "Small, Medium, or Large in System, Light, or Dark", keywords: "size small medium large theme light dark system", tab: .appearance),
+    SettingsSearchItem(title: "Accent highlight color", subtitle: "Customize selection border tint or hex code", keywords: "color accent hex ring highlight", tab: .appearance),
+    SettingsSearchItem(title: "HUD curvature, border & shadow", subtitle: "Corner radius, specular stroke, and drop shadow depth", keywords: "corner radius border shadow depth elevation", tab: .appearance),
 
-    SettingsSearchItem(title: "Excluded Apps & Pass-Through Rules", subtitle: "Hide specific apps or bypass shortcuts for games and VMs", keywords: "exclude ignore rules game vm pass through finder", tab: .apps),
+    SettingsSearchItem(title: "Excluded apps & pass-through rules", subtitle: "Hide specific apps or bypass shortcuts in full-screen apps", keywords: "exclude ignore rules game vm pass through finder", tab: .apps),
 
-    SettingsSearchItem(title: "Launch at Login & Menu Bar Icon", subtitle: "Start automatically with macOS and toggle menu bar item", keywords: "login startup menubar icon", tab: .general),
-    SettingsSearchItem(title: "Background Thumbnail Rendering", subtitle: "Keep thumbnails warm for instant 0 ms switcher opening", keywords: "background thumbnail cache gpu", tab: .general),
-    SettingsSearchItem(title: "Accessibility & Screen Recording Permissions", subtitle: "Verify required macOS privacy permissions", keywords: "permissions accessibility screen recording privacy", tab: .general),
-    SettingsSearchItem(title: "Software Updates & GitHub Releases", subtitle: "Check for new releases automatically or manually", keywords: "update version check github relaunch", tab: .general),
-    SettingsSearchItem(title: "Reset All Preferences", subtitle: "Restore every setting back to factory defaults", keywords: "reset defaults factory", tab: .general)
+    SettingsSearchItem(title: "Launch at login & menu bar icon", subtitle: "Start automatically at login and toggle status icon", keywords: "login startup menubar icon spotlight", tab: .general),
+    SettingsSearchItem(title: "Haptic & sound feedback on switch", subtitle: "Trackpad Force Touch tick and audio feedback when cycling", keywords: "haptic vibration sound feedback switch tick", tab: .general),
+    SettingsSearchItem(title: "Software updates & beta channel", subtitle: "Check schedule and pre-release GitHub builds", keywords: "update version check github beta daily", tab: .general),
+    SettingsSearchItem(title: "Backup, export & import settings", subtitle: "Save preferences to JSON or restore from another Mac", keywords: "backup export import json reset", tab: .general),
+
+    SettingsSearchItem(title: "Accessibility & Screen Recording", subtitle: "Verify required macOS privacy permissions", keywords: "permissions accessibility screen recording privacy lock", tab: .privacy),
+    SettingsSearchItem(title: "About Window Switcher", subtitle: "Version, build info, shortcuts summary, and releases", keywords: "about version github release build", tab: .about)
 ]
 
 // MARK: - Observable UI State (Zero @State macro usage for CLI builds)
@@ -120,27 +114,37 @@ public final class SettingsUIState: ObservableObject {
     @Published public var selectedTab: SettingsTab = .screenshots
     @Published public var searchQuery: String = ""
 
-    // Hover & UI feedback
+    // Interactive preview stage state
+    @Published public var previewSelectedIndex: Int = 1
+    @Published public var rulerDemoGap: Int = 12
+
+    // Hover & status feedback
     @Published public var hoveredTab: SettingsTab? = nil
     @Published public var hoveredStyle: SwitcherStyle? = nil
-    @Published public var didConfirmReset: Bool = false
+    @Published public var statusMessage: String? = nil
 
     // Exceptions selection
     @Published public var selectedExceptionId: String = "com.apple.finder"
-    @Published public var showAddExceptionSheet: Bool = false
-    @Published public var newAppName: String = ""
-    @Published public var newBundleId: String = ""
 
     // Shortcut recording
     @Published public var recordingTargetId: String? = nil
     public var ocrEventMonitor: Any? = nil
+
+    public func flashStatus(_ message: String) {
+        statusMessage = message
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3.2) { [weak self] in
+            if self?.statusMessage == message {
+                self?.statusMessage = nil
+            }
+        }
+    }
 
     public func startRecording(targetId: String, onRecorded: @escaping (KeyCombination) -> Void) {
         stopRecording()
         recordingTargetId = targetId
 
         ocrEventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown]) { [weak self] event in
-            if event.keyCode == 53 { // Esc
+            if event.keyCode == 53 {
                 self?.stopRecording()
                 return nil
             }
@@ -194,22 +198,31 @@ public struct SettingsView: View {
     @ObservedObject private var uiState = SettingsUIState.shared
     @Environment(\.colorScheme) private var colorScheme
 
-    private var canvasBackground: Color {
-        colorScheme == .dark
-            ? Color(red: 0.110, green: 0.110, blue: 0.118)
-            : Color(red: 0.957, green: 0.957, blue: 0.965)
-    }
+    private let sidebarBlue = Color(red: 0.0, green: 0.439, blue: 0.878) // #0070E0 — 4.8:1 white contrast
 
-    private var cardSurface: Color {
+    // Pure macOS Sheet Palette (crisp white sheet + soft cool-neutral grouped cards)
+    private var sheetBackground: Color {
         colorScheme == .dark
-            ? Color(red: 0.149, green: 0.149, blue: 0.161)
+            ? Color(red: 0.114, green: 0.114, blue: 0.122)
             : Color.white
     }
 
-    private var cardHairline: Color {
+    private var groupSurface: Color {
         colorScheme == .dark
-            ? Color.white.opacity(0.09)
-            : Color.black.opacity(0.07)
+            ? Color(red: 0.157, green: 0.157, blue: 0.169)
+            : Color(red: 0.965, green: 0.965, blue: 0.973)
+    }
+
+    private var groupHairline: Color {
+        colorScheme == .dark
+            ? Color.white.opacity(0.08)
+            : Color.black.opacity(0.065)
+    }
+
+    private var controlSurface: Color {
+        colorScheme == .dark
+            ? Color.white.opacity(0.10)
+            : Color(red: 0.914, green: 0.914, blue: 0.925)
     }
 
     public init() {}
@@ -217,17 +230,22 @@ public struct SettingsView: View {
     public var body: some View {
         HStack(spacing: 0) {
             sidebarView
-                .frame(width: 232)
+                .frame(width: 214)
 
             Rectangle()
-                .fill(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.09))
+                .fill(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.085))
                 .frame(width: 1)
 
-            detailContent
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(canvasBackground)
+            VStack(spacing: 0) {
+                inlineTopBar
+
+                detailContent
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+            .background(sheetBackground)
         }
-        .frame(width: 860, height: 620)
+        .frame(minWidth: 780, minHeight: 560)
+        .frame(width: 840, height: 620)
         .preferredColorScheme(
             settings.themeMode == .light ? .light :
             (settings.themeMode == .dark ? .dark : nil)
@@ -241,14 +259,14 @@ public struct SettingsView: View {
         }
     }
 
-    // MARK: - macOS System Settings Sidebar
+    // MARK: - Sidebar Navigation
 
     private var sidebarView: some View {
         ZStack {
             SidebarVibrancyView()
 
             VStack(spacing: 0) {
-                // Leave natural headroom for the window traffic lights
+                // Leave room for window traffic lights
                 Spacer().frame(height: 36)
 
                 // Pill Search Field
@@ -274,7 +292,7 @@ public struct SettingsView: View {
                 .frame(height: 28)
                 .background(
                     Capsule()
-                        .fill(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.055))
+                        .fill(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.05))
                 )
                 .overlay(
                     Capsule()
@@ -283,20 +301,22 @@ public struct SettingsView: View {
                 .padding(.horizontal, 12)
                 .padding(.bottom, 12)
 
-                // Navigation Tabs
+                // Navigation Groups
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(alignment: .leading, spacing: 2) {
-                        ForEach(SettingsTab.allCases.filter { !$0.isSystemGroup }) { tab in
+                        ForEach(SettingsTab.allCases.filter { $0.groupIndex == 0 }) { tab in
                             sidebarRow(tab: tab)
                         }
 
-                        Rectangle()
-                            .fill(colorScheme == .dark ? Color.white.opacity(0.07) : Color.black.opacity(0.07))
-                            .frame(height: 1)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 8)
+                        sidebarDivider
 
-                        ForEach(SettingsTab.allCases.filter { $0.isSystemGroup }) { tab in
+                        ForEach(SettingsTab.allCases.filter { $0.groupIndex == 1 }) { tab in
+                            sidebarRow(tab: tab)
+                        }
+
+                        sidebarDivider
+
+                        ForEach(SettingsTab.allCases.filter { $0.groupIndex == 2 }) { tab in
                             sidebarRow(tab: tab)
                         }
                     }
@@ -306,59 +326,51 @@ public struct SettingsView: View {
 
                 Spacer(minLength: 0)
 
-                // Quiet App Footer
-                Rectangle()
-                    .fill(colorScheme == .dark ? Color.white.opacity(0.07) : Color.black.opacity(0.07))
-                    .frame(height: 1)
-
+                // Signature Progressive-Disclosure Bottom Bar
                 HStack(spacing: 8) {
-                    AppBrandingIcon(size: 22, cornerRadius: 5.5)
-
-                    VStack(alignment: .leading, spacing: 0) {
-                        Text("Window Switcher")
-                            .font(.system(size: 11.5, weight: .semibold))
-                            .foregroundColor(.primary)
-                            .lineLimit(1)
-                        Text("Preferences")
-                            .font(.system(size: 10))
-                            .foregroundColor(.secondary)
-                    }
+                    Text("Show Details")
+                        .font(.system(size: 12, weight: .regular))
+                        .foregroundColor(.secondary)
 
                     Spacer()
 
-                    Text("v\(updater.currentVersion)")
-                        .font(.system(size: 10, weight: .medium, design: .monospaced))
-                        .foregroundColor(.secondary)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(
-                            Capsule()
-                                .fill(Color.primary.opacity(0.06))
-                        )
+                    Toggle("", isOn: $settings.showDetailsInSettings)
+                        .toggleStyle(.switch)
+                        .controlSize(.mini)
+                        .labelsHidden()
                 }
                 .padding(.horizontal, 14)
-                .padding(.vertical, 10)
+                .padding(.vertical, 12)
             }
         }
     }
 
+    private var sidebarDivider: some View {
+        Rectangle()
+            .fill(colorScheme == .dark ? Color.white.opacity(0.07) : Color.black.opacity(0.065))
+            .frame(height: 1)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+    }
+
     private func sidebarRow(tab: SettingsTab) -> some View {
-        let isSelected = uiState.selectedTab == tab && uiState.searchQuery.trimmingCharacters(in: .whitespaces).isEmpty
+        let isSearching = !uiState.searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let isSelected = uiState.selectedTab == tab && !isSearching
         let isHovered = uiState.hoveredTab == tab && !isSelected
 
         return Button(action: {
             uiState.searchQuery = ""
             uiState.selectedTab = tab
         }) {
-            HStack(spacing: 10) {
+            HStack(spacing: 9) {
                 SquircleBadge(
                     symbol: tab.icon,
                     color: tab.badgeColor,
                     isInvertedOnBlueSelection: isSelected && tab.isBlueBadge,
                     showSelectionRim: isSelected && !tab.isBlueBadge,
-                    size: 21,
-                    cornerRadius: 5.5,
-                    symbolSize: 11
+                    size: 20,
+                    cornerRadius: 5,
+                    symbolSize: 10.5
                 )
 
                 Text(tab.rawValue)
@@ -368,23 +380,19 @@ public struct SettingsView: View {
 
                 Spacer(minLength: 0)
 
-                if tab == .general && (!permissions.hasAccessibility || !permissions.hasScreenRecording) {
+                if tab == .privacy && (!permissions.hasAccessibility || !permissions.hasScreenRecording) {
                     Circle()
                         .fill(isSelected ? Color.white : Color.orange)
                         .frame(width: 6, height: 6)
                 }
             }
-            .padding(.horizontal, 10)
-            .frame(height: 32)
+            .padding(.horizontal, 8)
+            .frame(height: 29)
             .background(
-                RoundedRectangle(cornerRadius: 7, style: .continuous)
-                    .fill(
-                        isSelected
-                            ? Color(red: 0.039, green: 0.518, blue: 1.0)
-                            : (isHovered ? Color.primary.opacity(0.055) : Color.clear)
-                    )
+                RoundedRectangle(cornerRadius: 6.5, style: .continuous)
+                    .fill(isSelected ? sidebarBlue : (isHovered ? Color.primary.opacity(0.05) : Color.clear))
             )
-            .contentShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: 6.5, style: .continuous))
         }
         .buttonStyle(.plain)
         .onHover { hovering in
@@ -392,7 +400,64 @@ public struct SettingsView: View {
         }
     }
 
-    // MARK: - Detail Routing & Search Results
+    // MARK: - Calm Inline Top Bar
+
+    private var inlineTopBar: some View {
+        let trimmedQuery = uiState.searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        return HStack(spacing: 12) {
+            Text(trimmedQuery.isEmpty ? uiState.selectedTab.rawValue : "Search results")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundColor(.primary)
+
+            Spacer()
+
+            if !trimmedQuery.isEmpty {
+                Button("Clear search") {
+                    uiState.searchQuery = ""
+                }
+                .buttonStyle(.plain)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundColor(.secondary)
+                .padding(.horizontal, 10)
+                .frame(height: 24)
+                .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(controlSurface))
+            } else if uiState.selectedTab == .screenshots {
+                Button(action: { ScreenshotCoordinator.shared.startAreaCapture() }) {
+                    HStack(spacing: 5) {
+                        Image(systemName: "camera.viewfinder")
+                            .font(.system(size: 11, weight: .semibold))
+                        Text("Take Screenshot")
+                            .font(.system(size: 12, weight: .medium))
+                    }
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 11)
+                    .frame(height: 25)
+                    .background(RoundedRectangle(cornerRadius: 6.5, style: .continuous).fill(sidebarBlue))
+                }
+                .buttonStyle(.plain)
+            } else if uiState.selectedTab == .apps {
+                Button(action: chooseApplicationFromDisk) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "plus")
+                            .font(.system(size: 11, weight: .semibold))
+                        Text("Add App")
+                            .font(.system(size: 12, weight: .medium))
+                    }
+                    .foregroundColor(.primary)
+                    .padding(.horizontal, 10)
+                    .frame(height: 25)
+                    .background(RoundedRectangle(cornerRadius: 6.5, style: .continuous).fill(controlSurface))
+                    .overlay(RoundedRectangle(cornerRadius: 6.5, style: .continuous).stroke(groupHairline, lineWidth: 0.75))
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, 24)
+        .frame(height: 44)
+    }
+
+    // MARK: - Content Routing
 
     @ViewBuilder
     private var detailContent: some View {
@@ -400,81 +465,61 @@ public struct SettingsView: View {
         if !trimmedQuery.isEmpty {
             ScrollView(.vertical, showsIndicators: true) {
                 searchResultsPane(query: trimmedQuery)
-                    .padding(.horizontal, 28)
-                    .padding(.vertical, 24)
+                    .padding(.horizontal, 24)
+                    .padding(.top, 4)
+                    .padding(.bottom, 24)
             }
         } else if uiState.selectedTab == .apps {
-            // Apps & Rules uses full height master-detail split without outer scroll clipping
             appsPane
-                .padding(.horizontal, 28)
-                .padding(.vertical, 24)
+                .padding(.horizontal, 24)
+                .padding(.top, 4)
+                .padding(.bottom, 24)
         } else {
             ScrollView(.vertical, showsIndicators: true) {
                 Group {
                     switch uiState.selectedTab {
-                    case .screenshots:
-                        screenshotsPane
-                    case .designerTools:
-                        designerToolsPane
-                    case .switcher:
-                        switcherPane
-                    case .appearance:
-                        appearancePane
-                    case .apps:
-                        appsPane
-                    case .general:
-                        generalPane
+                    case .screenshots: screenshotsPane
+                    case .designerTools: designerToolsPane
+                    case .switcher: switcherPane
+                    case .appearance: appearancePane
+                    case .apps: appsPane
+                    case .general: generalPane
+                    case .privacy: privacyPane
+                    case .about: aboutPane
                     }
                 }
-                .padding(.horizontal, 28)
-                .padding(.vertical, 24)
+                .padding(.horizontal, 24)
+                .padding(.top, 4)
+                .padding(.bottom, 24)
             }
         }
     }
 
+    // MARK: - Search Results
+
     private func searchResultsPane(query: String) -> some View {
         let matches = allSearchItems.filter { $0.matches(query) }
 
-        return VStack(alignment: .leading, spacing: 20) {
-            HStack(spacing: 12) {
-                SquircleBadge(symbol: "magnifyingglass", color: Color(red: 0.039, green: 0.518, blue: 1.0), size: 28, cornerRadius: 7, symbolSize: 14)
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Search results for \"\(query)\"")
-                        .font(.system(size: 19, weight: .bold))
-                    Text("\(matches.count) \(matches.count == 1 ? "setting" : "settings") matched")
-                        .font(.system(size: 12))
-                        .foregroundColor(.secondary)
-                }
-
-                Spacer()
-
-                Button("Clear") {
-                    uiState.searchQuery = ""
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-            }
+        return VStack(alignment: .leading, spacing: 12) {
+            sectionHeading("\(matches.count) \(matches.count == 1 ? "result" : "results") for \"\(query)\"")
 
             if matches.isEmpty {
-                insetCard {
-                    VStack(spacing: 10) {
+                formCard {
+                    VStack(spacing: 8) {
                         Image(systemName: "magnifyingglass")
-                            .font(.system(size: 26, weight: .light))
+                            .font(.system(size: 24, weight: .light))
                             .foregroundColor(.secondary)
                         Text("No matching settings")
-                            .font(.system(size: 14, weight: .semibold))
-                        Text("Try searching for \"shortcut\", \"cards\", \"ruler\", \"login\", or \"permissions\".")
-                            .font(.system(size: 12))
+                            .font(.system(size: 13.5, weight: .semibold))
+                        Text("Try \"haptic\", \"cards\", \"ruler\", \"backup\", or \"shortcuts\"")
+                            .font(.system(size: 11.5))
                             .foregroundColor(.secondary)
-                            .multilineTextAlignment(.center)
                     }
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 36)
-                    .padding(.horizontal, 20)
+                    .padding(.vertical, 32)
                 }
             } else {
-                insetCard {
+                formCard {
                     VStack(spacing: 0) {
                         ForEach(Array(matches.enumerated()), id: \.element.id) { index, item in
                             Button(action: {
@@ -485,19 +530,21 @@ public struct SettingsView: View {
                                     SquircleBadge(
                                         symbol: item.tab.icon,
                                         color: item.tab.badgeColor,
-                                        size: 24,
-                                        cornerRadius: 6,
-                                        symbolSize: 12
+                                        size: 22,
+                                        cornerRadius: 5.5,
+                                        symbolSize: 11
                                     )
 
                                     VStack(alignment: .leading, spacing: 2) {
                                         Text(item.title)
                                             .font(.system(size: 13, weight: .medium))
                                             .foregroundColor(.primary)
-                                        Text(item.subtitle)
-                                            .font(.system(size: 11.5))
-                                            .foregroundColor(.secondary)
-                                            .lineLimit(1)
+                                        if settings.showDetailsInSettings {
+                                            Text(item.subtitle)
+                                                .font(.system(size: 11.5))
+                                                .foregroundColor(.secondary)
+                                                .lineLimit(1)
+                                        }
                                     }
 
                                     Spacer()
@@ -507,17 +554,17 @@ public struct SettingsView: View {
                                         .foregroundColor(.secondary)
 
                                     Image(systemName: "chevron.right")
-                                        .font(.system(size: 11, weight: .semibold))
+                                        .font(.system(size: 10.5, weight: .semibold))
                                         .foregroundColor(.secondary.opacity(0.6))
                                 }
-                                .padding(.horizontal, 16)
-                                .padding(.vertical, 12)
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 10)
                                 .contentShape(Rectangle())
                             }
                             .buttonStyle(.plain)
 
                             if index < matches.count - 1 {
-                                insetDivider(leading: 52)
+                                rowDivider(leading: 48)
                             }
                         }
                     }
@@ -530,80 +577,36 @@ public struct SettingsView: View {
 
     private var screenshotsPane: some View {
         VStack(alignment: .leading, spacing: 20) {
-            paneHeader(for: .screenshots)
-
-            // Action Banner Card
-            insetCard {
-                HStack(spacing: 14) {
-                    SquircleBadge(
-                        symbol: "viewfinder.circle.fill",
-                        color: Color(red: 0.039, green: 0.518, blue: 1.0),
-                        size: 36,
-                        cornerRadius: 9,
-                        symbolSize: 18
-                    )
-
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Instant Freeze & Window Capture")
-                            .font(.system(size: 13.5, weight: .semibold))
-                        Text("Drag to select a screen area or single-click any window for an Apple-style shadow capture.")
-                            .font(.system(size: 11.5))
-                            .foregroundColor(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-
-                    Spacer(minLength: 12)
-
-                    Button(action: {
-                        ScreenshotCoordinator.shared.startAreaCapture()
-                    }) {
-                        Text("Take Screenshot")
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundColor(.white)
-                            .padding(.horizontal, 14)
-                            .frame(height: 28)
-                            .background(
-                                RoundedRectangle(cornerRadius: 7, style: .continuous)
-                                    .fill(Color(red: 0.039, green: 0.518, blue: 1.0))
-                            )
-                    }
-                    .buttonStyle(.plain)
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 14)
-            }
-
-            // Capture Shortcuts Group
             VStack(alignment: .leading, spacing: 8) {
-                sectionTitle("Capture shortcuts")
+                sectionHeading("Capture shortcuts")
 
-                insetCard {
+                formCard {
                     VStack(spacing: 0) {
                         shortcutRow(
                             title: "Area & window capture",
-                            subtitle: "Freeze all screens, drag a region, or click a window",
+                            subtitle: "Freeze screen frames, drag a region, or click any window for shadow capture.",
                             targetId: "screenshot",
                             combination: $settings.screenshotKeyCombination,
                             defaultCombo: .defaultScreenshot,
                             onTry: { ScreenshotCoordinator.shared.startAreaCapture() }
                         )
 
-                        insetDivider()
+                        rowDivider()
 
                         shortcutRow(
                             title: "Capture active window",
-                            subtitle: "Snap the frontmost window directly with soft elevation shadow",
+                            subtitle: "Immediately snapshot the frontmost window with Apple elevation shadow.",
                             targetId: "activeWindow",
                             combination: $settings.activeWindowKeyCombination,
                             defaultCombo: .defaultActiveWindow,
                             onTry: { ScreenshotCoordinator.shared.captureActiveWindow() }
                         )
 
-                        insetDivider()
+                        rowDivider()
 
                         shortcutRow(
                             title: "Screen text recognition (OCR)",
-                            subtitle: "Extract clean text from images, videos, or locked views",
+                            subtitle: "Select any region on screen to copy detected text directly to the clipboard.",
                             targetId: "ocr",
                             combination: $settings.ocrKeyCombination,
                             defaultCombo: .defaultOCR,
@@ -613,23 +616,22 @@ public struct SettingsView: View {
                 }
             }
 
-            // Capture Behavior Group
             VStack(alignment: .leading, spacing: 8) {
-                sectionTitle("Workflow")
+                sectionHeading("Workflow")
 
-                insetCard {
+                formCard {
                     VStack(spacing: 0) {
-                        switchRow(
+                        toggleRow(
                             title: "Auto-open Designer Studio",
-                            subtitle: "Open the canvas editor immediately after capturing a screenshot.",
+                            subtitle: "Launch the annotation and caliper canvas immediately after capturing.",
                             isOn: $settings.autoOpenEditor
                         )
 
-                        insetDivider()
+                        rowDivider()
 
-                        switchRow(
+                        toggleRow(
                             title: "Play camera shutter sound",
-                            subtitle: "Play subtle audio confirmation when capturing or copying.",
+                            subtitle: "Play audio feedback when a capture completes or copies to clipboard.",
                             isOn: $settings.playShutterSound
                         )
                     }
@@ -647,28 +649,11 @@ public struct SettingsView: View {
         onTry: @escaping () -> Void
     ) -> some View {
         HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(.system(size: 13, weight: .medium))
-                Text(subtitle)
-                    .font(.system(size: 11.5))
-                    .foregroundColor(.secondary)
-            }
+            rowLabel(title: title, subtitle: subtitle)
 
             Spacer(minLength: 8)
 
-            Button(action: onTry) {
-                Text("Try")
-                    .font(.system(size: 11.5, weight: .medium))
-                    .foregroundColor(.secondary)
-                    .padding(.horizontal, 10)
-                    .frame(height: 24)
-                    .background(
-                        RoundedRectangle(cornerRadius: 6, style: .continuous)
-                            .fill(Color.primary.opacity(0.06))
-                    )
-            }
-            .buttonStyle(.plain)
+            compactActionButton("Try", action: onTry)
 
             ShortcutRecorderField(
                 targetId: targetId,
@@ -676,258 +661,336 @@ public struct SettingsView: View {
                 defaultCombination: defaultCombo
             )
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
     }
 
-    // MARK: - 2. Designer Tools Pane
+    // MARK: - 2. Designer Tools Pane (With Interactive Caliper & Grid Stage)
 
     private var designerToolsPane: some View {
         VStack(alignment: .leading, spacing: 20) {
-            paneHeader(for: .designerTools)
+            interactiveCaliperStage
 
-            // Measurement & Grid Audit
             VStack(alignment: .leading, spacing: 8) {
-                sectionTitle("Measurement & snapping")
+                sectionHeading("Measurement & snapping")
 
-                insetCard {
+                formCard {
                     VStack(spacing: 0) {
-                        switchRow(
+                        toggleRow(
                             title: "Smart distance & edge snapping",
-                            subtitle: "Snap vertical and horizontal rulers automatically to buttons, labels, and borders.",
+                            subtitle: "Snap horizontal and vertical rulers automatically to buttons, icons, and layout borders.",
                             isOn: $settings.enableSmartDistance
                         )
 
-                        insetDivider()
+                        rowDivider()
 
                         HStack(spacing: 12) {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("Spacing grid audit")
-                                    .font(.system(size: 13, weight: .medium))
-                                Text("Highlight off-grid measurements in amber while auditing layouts.")
-                                    .font(.system(size: 11.5))
-                                    .foregroundColor(.secondary)
-                            }
-
-                            Spacer(minLength: 12)
-
+                            rowLabel(
+                                title: "Spacing grid audit",
+                                subtitle: "Highlight measurements that fall off the chosen layout rhythm in amber."
+                            )
+                            Spacer(minLength: 8)
                             Picker("", selection: $settings.gridAuditUnit) {
-                                Text("4 px Grid").tag(4)
-                                Text("8 px Grid").tag(8)
+                                Text("4 px").tag(4)
+                                Text("8 px").tag(8)
                                 Text("Off").tag(1)
                             }
                             .pickerStyle(.segmented)
-                            .frame(width: 210)
+                            .frame(width: 168)
                         }
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 12)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
                     }
                 }
             }
 
-            // Tool Keyboard Shortcuts
             VStack(alignment: .leading, spacing: 8) {
-                sectionTitle("Studio keyboard shortcuts")
+                sectionHeading("Canvas shortcuts")
 
-                insetCard {
+                formCard {
                     VStack(spacing: 0) {
-                        studioShortcutRow(symbol: "cursorarrow", color: Color(red: 0.039, green: 0.518, blue: 1.0), name: "Select & Drag", detail: "Select, move, or resize annotations", key: "V")
-                        insetDivider(leading: 50)
-                        studioShortcutRow(symbol: "ruler", color: Color(red: 1.0, green: 0.584, blue: 0.0), name: "Dimension Ruler", detail: "Horizontal & vertical snap caliper", key: "D")
-                        insetDivider(leading: 50)
-                        studioShortcutRow(symbol: "arrow.up.right", color: Color(red: 0.188, green: 0.820, blue: 0.345), name: "Arrow Annotation", detail: "Single, double, or pointed callouts", key: "A")
-                        insetDivider(leading: 50)
-                        studioShortcutRow(symbol: "character.textbox", color: Color(red: 0.369, green: 0.361, blue: 0.902), name: "Text Callout", detail: "Inline plain, pill, or quote styling", key: "T")
-                        insetDivider(leading: 50)
-                        studioShortcutRow(symbol: "rectangle", color: Color(red: 1.0, green: 0.216, blue: 0.373), name: "Rectangle Frame", detail: "Stroked outline or solid fill box", key: "R")
-                        insetDivider(leading: 50)
-                        studioShortcutRow(symbol: "arrow.uturn.backward", color: Color(red: 0.557, green: 0.557, blue: 0.576), name: "Undo / Redo", detail: "Step forward or back in annotation history", key: "⌘Z / ⌘⇧Z")
+                        keycapRow(title: "Select & move", subtitle: "Drag objects, handles, and resize bounds", key: "V")
+                        rowDivider()
+                        keycapRow(title: "Dimension ruler", subtitle: "Horizontal and vertical snap caliper", key: "D")
+                        rowDivider()
+                        keycapRow(title: "Arrow annotation", subtitle: "Single, double, or pointed callouts", key: "A")
+                        rowDivider()
+                        keycapRow(title: "Text callout", subtitle: "Plain label, capsule badge, or quote block", key: "T")
+                        rowDivider()
+                        keycapRow(title: "Rectangle frame", subtitle: "Stroke outline or solid filled container", key: "R")
+                        rowDivider()
+                        keycapRow(title: "Undo & redo", subtitle: "Step backward or forward through edits", key: "⌘Z / ⌘⇧Z")
                     }
                 }
             }
         }
     }
 
-    private func studioShortcutRow(symbol: String, color: Color, name: String, detail: String, key: String) -> some View {
-        HStack(spacing: 12) {
-            SquircleBadge(symbol: symbol, color: color, size: 22, cornerRadius: 5.5, symbolSize: 11)
+    private var interactiveCaliperStage: some View {
+        let gap = uiState.rulerDemoGap
+        let auditUnit = settings.gridAuditUnit
+        let isAuditEnabled = auditUnit > 1
+        let isOffGrid = isAuditEnabled && (gap % auditUnit != 0)
+        let caliperColor: Color = isOffGrid
+            ? Color(red: 1.0, green: 0.62, blue: 0.04)
+            : Color(red: 0.039, green: 0.518, blue: 1.0)
 
-            VStack(alignment: .leading, spacing: 1) {
-                Text(name)
-                    .font(.system(size: 13, weight: .medium))
-                Text(detail)
-                    .font(.system(size: 11))
-                    .foregroundColor(.secondary)
+        return VStack(spacing: 0) {
+            ZStack {
+                Color(red: 0.118, green: 0.122, blue: 0.133)
+
+                // Subtle drafting dot grid
+                Canvas { context, size in
+                    let step: CGFloat = 12
+                    var x: CGFloat = step
+                    while x < size.width {
+                        var y: CGFloat = step
+                        while y < size.height {
+                            context.fill(
+                                Path(ellipseIn: CGRect(x: x - 0.6, y: y - 0.6, width: 1.2, height: 1.2)),
+                                with: .color(.white.opacity(0.08))
+                            )
+                            y += step
+                        }
+                        x += step
+                    }
+                }
+
+                // UI Specimen + Live Caliper Readout
+                VStack(spacing: 10) {
+                    HStack(spacing: 0) {
+                        Text("Save Changes")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 14)
+                            .frame(height: 30)
+                            .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(Color(red: 0.039, green: 0.518, blue: 1.0)))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                    .stroke(settings.enableSmartDistance ? caliperColor.opacity(0.85) : Color.clear, lineWidth: 1)
+                            )
+
+                        // Exact pixel-accurate edge-to-edge caliper
+                        ZStack {
+                            if settings.enableSmartDistance {
+                                Rectangle()
+                                    .fill(caliperColor)
+                                    .frame(width: CGFloat(gap), height: 1.5)
+
+                                HStack {
+                                    Rectangle().fill(caliperColor).frame(width: 1.5, height: 14)
+                                    Spacer()
+                                    Rectangle().fill(caliperColor).frame(width: 1.5, height: 14)
+                                }
+                                .frame(width: CGFloat(gap))
+                            }
+                        }
+                        .frame(width: CGFloat(gap), height: 30)
+
+                        Text("Cancel")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(.white.opacity(0.9))
+                            .padding(.horizontal, 14)
+                            .frame(height: 30)
+                            .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(Color.white.opacity(0.11)))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                    .stroke(settings.enableSmartDistance ? caliperColor.opacity(0.85) : Color.white.opacity(0.14), lineWidth: 0.8)
+                            )
+                    }
+
+                    // Caliper readout + status
+                    HStack(spacing: 6) {
+                        Text("\(gap) px")
+                            .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 3)
+                            .background(Capsule().fill(caliperColor))
+
+                        Text(
+                            !settings.enableSmartDistance
+                                ? "Edge snapping paused"
+                                : (isOffGrid
+                                    ? "Off \(auditUnit) px grid"
+                                    : (isAuditEnabled ? "Aligned to \(auditUnit) px grid" : "Grid audit off"))
+                        )
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(.white.opacity(0.75))
+                    }
+                }
+
+                // Bottom-right interactive spacing switcher
+                VStack {
+                    Spacer()
+                    HStack {
+                        Text("Interactive caliper preview")
+                            .font(.system(size: 10.5, weight: .medium))
+                            .foregroundColor(.white.opacity(0.45))
+                        Spacer()
+                        HStack(spacing: 4) {
+                            ForEach([12, 14, 16, 24], id: \.self) { testGap in
+                                Button(action: { uiState.rulerDemoGap = testGap }) {
+                                    Text("\(testGap)")
+                                        .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                                        .foregroundColor(uiState.rulerDemoGap == testGap ? .black : .white.opacity(0.75))
+                                        .padding(.horizontal, 7)
+                                        .frame(height: 20)
+                                        .background(
+                                            RoundedRectangle(cornerRadius: 4.5, style: .continuous)
+                                                .fill(uiState.rulerDemoGap == testGap ? Color.white : Color.white.opacity(0.10))
+                                        )
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 8)
+                }
             }
+            .frame(height: 124)
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .stroke(groupHairline, lineWidth: 0.75)
+            )
+        }
+    }
 
+    private func keycapRow(title: String, subtitle: String, key: String) -> some View {
+        HStack {
+            rowLabel(title: title, subtitle: subtitle)
             Spacer()
-
             Text(key)
                 .font(.system(size: 11, weight: .semibold, design: .monospaced))
                 .foregroundColor(.primary)
-                .padding(.horizontal, 9)
-                .frame(height: 24)
-                .background(
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        .fill(Color.primary.opacity(0.06))
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        .stroke(Color.primary.opacity(0.10), lineWidth: 0.75)
-                )
+                .padding(.horizontal, 8)
+                .frame(height: 22)
+                .background(RoundedRectangle(cornerRadius: 5, style: .continuous).fill(controlSurface))
+                .overlay(RoundedRectangle(cornerRadius: 5, style: .continuous).stroke(groupHairline, lineWidth: 0.75))
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 9)
     }
 
     // MARK: - 3. Switcher Pane
 
     private var switcherPane: some View {
         VStack(alignment: .leading, spacing: 20) {
-            paneHeader(for: .switcher)
-
-            // Trigger Selector Cards
             VStack(alignment: .leading, spacing: 8) {
-                sectionTitle("Activation shortcut")
+                sectionHeading("Trigger & release")
 
                 HStack(spacing: 12) {
                     triggerCard(
                         trigger: .commandTab,
-                        keys: "⌘ + Tab",
+                        keys: "⌘ Tab",
                         title: "Command + Tab",
-                        subtitle: "Replace the stock macOS app switcher with window-level switching."
+                        subtitle: "Replace macOS app switcher with window-level switching"
                     )
 
                     triggerCard(
                         trigger: .optionTab,
-                        keys: "⌥ + Tab",
+                        keys: "⌥ Tab",
                         title: "Option + Tab",
-                        subtitle: "Run alongside macOS Command-Tab without overriding the system HUD."
+                        subtitle: "Run alongside stock macOS Command-Tab"
                     )
                 }
 
-                insetCard {
+                formCard {
                     VStack(spacing: 0) {
                         HStack(spacing: 12) {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("After releasing shortcut")
-                                    .font(.system(size: 13, weight: .medium))
-                                Text("Choose whether releasing the modifier key switches focus immediately.")
-                                    .font(.system(size: 11.5))
-                                    .foregroundColor(.secondary)
-                            }
+                            rowLabel(
+                                title: "After releasing modifier",
+                                subtitle: "Immediately raise the selected window or hold the HUD open."
+                            )
                             Spacer()
                             Picker("", selection: $settings.afterRelease) {
                                 Text("Focus Window").tag("Focus")
                                 Text("Keep Open").tag("Hold")
                             }
                             .pickerStyle(.segmented)
-                            .frame(width: 220)
+                            .frame(width: 204)
                         }
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 12)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
 
-                        insetDivider()
+                        rowDivider()
 
-                        switchRow(
-                            title: "Show live window preview badge",
-                            subtitle: "Display live status indicators on minimized or audio-playing windows.",
+                        toggleRow(
+                            title: "Window status indicators",
+                            subtitle: "Show hidden, minimized, or playing indicators on tiles.",
                             isOn: $settings.showWindowBadges
                         )
                     }
                 }
             }
 
-            // Filtering Scope
             VStack(alignment: .leading, spacing: 8) {
-                sectionTitle("Scope & ordering")
+                sectionHeading("Scope & visibility")
 
-                insetCard {
+                formCard {
                     VStack(spacing: 0) {
-                        HStack {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("Applications")
-                                    .font(.system(size: 13, weight: .medium))
-                                Text("Filter switcher items by running applications.")
-                                    .font(.system(size: 11.5))
-                                    .foregroundColor(.secondary)
-                            }
-                            Spacer()
-                            Picker("", selection: $settings.appsFilter) {
-                                Text("All apps").tag("All apps")
-                                Text("Active app").tag("Active app")
-                            }
-                            .frame(width: 170)
-                        }
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 12)
+                        menuRow(
+                            title: "Applications",
+                            subtitle: "Show windows from all running apps or only the active app.",
+                            selection: $settings.appsFilter,
+                            options: [("All apps", "All apps"), ("Active app", "Active app")]
+                        )
 
-                        insetDivider()
+                        rowDivider()
 
-                        HStack {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("macOS Spaces")
-                                    .font(.system(size: 13, weight: .medium))
-                                Text("Show windows from every Space or only the current desktop.")
-                                    .font(.system(size: 11.5))
-                                    .foregroundColor(.secondary)
-                            }
-                            Spacer()
-                            Picker("", selection: $settings.spacesFilter) {
-                                Text("All Spaces").tag("All Spaces")
-                                Text("Current Space").tag("Current Space")
-                            }
-                            .frame(width: 170)
-                        }
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 12)
-                    }
-                }
-            }
+                        menuRow(
+                            title: "macOS Spaces",
+                            subtitle: "Restrict window list to the current desktop Space.",
+                            selection: $settings.spacesFilter,
+                            options: [("All Spaces", "All Spaces"), ("Current Space", "Current Space")]
+                        )
 
-            // Visibility Flags
-            VStack(alignment: .leading, spacing: 8) {
-                sectionTitle("Included windows")
+                        rowDivider()
 
-                insetCard {
-                    VStack(spacing: 0) {
-                        switchRow(
-                            title: "Minimized windows",
-                            subtitle: "Keep Dock-minimized windows accessible in the switcher.",
+                        toggleRow(
+                            title: "Include minimized windows",
+                            subtitle: "Keep Dock-minimized windows selectable in the switcher.",
                             isOn: $settings.showMinimizedWindows
                         )
-                        insetDivider()
-                        switchRow(
-                            title: "Hidden apps",
-                            subtitle: "Include windows belonging to Command-H hidden apps.",
+
+                        rowDivider()
+
+                        toggleRow(
+                            title: "Include hidden applications",
+                            subtitle: "List windows belonging to applications hidden via ⌘H.",
                             isOn: $settings.showHiddenWindows
                         )
-                        insetDivider()
-                        switchRow(
-                            title: "Fullscreen spaces",
-                            subtitle: "Include apps occupying dedicated fullscreen Spaces.",
+
+                        rowDivider()
+
+                        toggleRow(
+                            title: "Include fullscreen spaces",
+                            subtitle: "Show windows running inside dedicated fullscreen Spaces.",
                             isOn: $settings.showFullscreenWindows
                         )
-                        insetDivider()
-                        switchRow(
-                            title: "Running apps with no open windows",
-                            subtitle: "List background-open apps like Mail or Finder even with zero windows.",
+
+                        rowDivider()
+
+                        toggleRow(
+                            title: "Show apps without open windows",
+                            subtitle: "Include running apps that currently have zero windows open.",
                             isOn: $settings.showAppsWithNoWindows
                         )
                     }
                 }
             }
 
-            // Navigation Hotkeys
             VStack(alignment: .leading, spacing: 8) {
-                sectionTitle("Quick actions while HUD is open")
+                sectionHeading("While switcher is open")
 
-                insetCard {
+                formCard {
                     HStack(spacing: 8) {
                         hotkeyChip(keys: "↑ ↓ ← →", label: "Navigate")
                         hotkeyChip(keys: "Return", label: "Focus")
-                        hotkeyChip(keys: "W", label: "Close Window")
-                        hotkeyChip(keys: "Q", label: "Quit App")
+                        hotkeyChip(keys: "W", label: "Close")
+                        hotkeyChip(keys: "Q", label: "Quit")
                         hotkeyChip(keys: "H / M", label: "Hide / Min")
                     }
                     .frame(maxWidth: .infinity)
@@ -943,45 +1006,45 @@ public struct SettingsView: View {
 
         return Button(action: {
             settings.primaryShortcut = trigger
+            settings.triggerSwitchFeedback(isCommit: false)
         }) {
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 6) {
                 HStack {
                     Text(keys)
-                        .font(.system(size: 11.5, weight: .semibold, design: .monospaced))
+                        .font(.system(size: 11, weight: .semibold, design: .monospaced))
                         .foregroundColor(isSelected ? .white : .primary)
-                        .padding(.horizontal, 9)
-                        .frame(height: 24)
-                        .background(
-                            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                .fill(isSelected ? accent : Color.primary.opacity(0.07))
-                        )
+                        .padding(.horizontal, 8)
+                        .frame(height: 22)
+                        .background(RoundedRectangle(cornerRadius: 5.5, style: .continuous).fill(isSelected ? accent : controlSurface))
 
                     Spacer()
 
                     if isSelected {
                         Image(systemName: "checkmark.circle.fill")
-                            .font(.system(size: 16))
+                            .font(.system(size: 14.5))
                             .foregroundColor(accent)
                     }
                 }
 
                 Text(title)
-                    .font(.system(size: 13.5, weight: .semibold))
+                    .font(.system(size: 13, weight: .semibold))
                     .foregroundColor(.primary)
 
-                Text(subtitle)
-                    .font(.system(size: 11.5))
-                    .foregroundColor(.secondary)
-                    .lineLimit(2)
-                    .fixedSize(horizontal: false, vertical: true)
+                if settings.showDetailsInSettings {
+                    Text(subtitle)
+                        .font(.system(size: 11))
+                        .foregroundColor(.secondary)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
-            .padding(14)
+            .padding(12)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(cardSurface)
+            .background(groupSurface)
             .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .stroke(isSelected ? accent : cardHairline, lineWidth: isSelected ? 2 : 0.75)
+                    .stroke(isSelected ? accent : groupHairline, lineWidth: isSelected ? 1.75 : 0.75)
             )
             .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         }
@@ -995,10 +1058,7 @@ public struct SettingsView: View {
                 .foregroundColor(.primary)
                 .padding(.horizontal, 7)
                 .frame(height: 22)
-                .background(
-                    RoundedRectangle(cornerRadius: 5, style: .continuous)
-                        .fill(Color.primary.opacity(0.06))
-                )
+                .background(RoundedRectangle(cornerRadius: 5, style: .continuous).fill(controlSurface))
             Text(label)
                 .font(.system(size: 10.5))
                 .foregroundColor(.secondary)
@@ -1007,125 +1067,41 @@ public struct SettingsView: View {
         .frame(maxWidth: .infinity)
     }
 
-    // MARK: - 4. Appearance Pane (with Compact Cards + 2x2 Grid)
+    // MARK: - 4. Appearance Pane (Interactive Live Desktop Stage + Options)
 
     private var appearancePane: some View {
         VStack(alignment: .leading, spacing: 20) {
-            paneHeader(for: .appearance)
+            // LIVE INTERACTIVE STAGE (Product Moment)
+            liveSwitcherDesktopStage
 
-            // 2x2 Layout Picker Grid
+            // 4-Mode Layout Picker
             VStack(alignment: .leading, spacing: 8) {
-                sectionTitle("Switcher layout")
+                sectionHeading("HUD layout style")
 
                 LazyVGrid(
                     columns: [
-                        GridItem(.flexible(), spacing: 12),
-                        GridItem(.flexible(), spacing: 12)
+                        GridItem(.flexible(), spacing: 10),
+                        GridItem(.flexible(), spacing: 10),
+                        GridItem(.flexible(), spacing: 10),
+                        GridItem(.flexible(), spacing: 10)
                     ],
-                    spacing: 12
+                    spacing: 10
                 ) {
-                    // 1. Thumbnails
-                    appearanceStyleCard(
-                        style: .thumbnails,
-                        label: "Thumbnails",
-                        description: "Live window previews in floating cards"
-                    ) {
-                        ZStack {
-                            Color(red: 0.11, green: 0.11, blue: 0.13)
-                            HStack(spacing: 8) {
-                                miniThumbnailCard(isSelected: false)
-                                miniThumbnailCard(isSelected: true)
-                            }
-                            .padding(10)
-                        }
-                    }
-
-                    // 2. App Icons (Command+Tab)
-                    appearanceStyleCard(
-                        style: .icons,
-                        label: "App Icons",
-                        description: "Horizontal Command-Tab icon strip"
-                    ) {
-                        ZStack {
-                            Color(red: 0.11, green: 0.11, blue: 0.13)
-                            HStack(spacing: 8) {
-                                miniCmdTabIcon(symbol: "terminal.fill", bg: Color(white: 0.20), name: "Ghostty", isSelected: false)
-                                miniCmdTabIcon(symbol: "envelope.fill", bg: Color(red: 0.04, green: 0.52, blue: 1.0), name: "Mail", isSelected: true)
-                                miniCmdTabIcon(symbol: "safari.fill", bg: Color(red: 0.19, green: 0.69, blue: 0.78), name: "Safari", isSelected: false)
-                            }
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 8)
-                            .background(
-                                Capsule()
-                                    .fill(Color.white.opacity(0.08))
-                                    .overlay(Capsule().stroke(Color.white.opacity(0.16), lineWidth: 0.7))
-                            )
-                        }
-                    }
-
-                    // 3. Window Titles (4-Column List)
-                    appearanceStyleCard(
-                        style: .titles,
-                        label: "Window Titles",
-                        description: "4-column vertical window list"
-                    ) {
-                        ZStack {
-                            Color(red: 0.11, green: 0.11, blue: 0.13)
-                            VStack(spacing: 3) {
-                                miniTitleRow(app: "Ghostty", color: Color(white: 0.25), title: "workspace", isSelected: false)
-                                miniTitleRow(app: "Mail", color: Color(red: 0.04, green: 0.52, blue: 1.0), title: "Release Notes", isSelected: true)
-                                miniTitleRow(app: "Code", color: Color(red: 0.19, green: 0.52, blue: 0.90), title: "SettingsView.swift", isSelected: false)
-                            }
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 8)
-                            .background(
-                                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                    .fill(Color.white.opacity(0.06))
-                                    .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(Color.white.opacity(0.14), lineWidth: 0.6))
-                            )
-                            .padding(.horizontal, 12)
-                        }
-                    }
-
-                    // 4. Compact Cards (2x2 Bento Grid)
-                    appearanceStyleCard(
-                        style: .cards,
-                        label: "Compact Cards",
-                        description: "2–3 column tile grid with app & title"
-                    ) {
-                        ZStack {
-                            Color(red: 0.11, green: 0.11, blue: 0.13)
-                            VStack(spacing: 5) {
-                                HStack(spacing: 5) {
-                                    miniCompactCard(app: "Code", title: "App.swift", color: Color(red: 0.04, green: 0.52, blue: 1.0), isSelected: true)
-                                    miniCompactCard(app: "Mail", title: "Inbox", color: Color(red: 0.20, green: 0.68, blue: 0.96), isSelected: false)
-                                }
-                                HStack(spacing: 5) {
-                                    miniCompactCard(app: "Spotify", title: "Playing", color: Color(red: 0.18, green: 0.80, blue: 0.44), isSelected: false)
-                                    miniCompactCard(app: "Figma", title: "Specs", color: Color(red: 0.68, green: 0.32, blue: 0.87), isSelected: false)
-                                }
-                            }
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 8)
-                        }
-                    }
+                    styleSelectorTile(style: .thumbnails, title: "Thumbnails", symbol: "rectangle.grid.2x2")
+                    styleSelectorTile(style: .icons, title: "App Icons", symbol: "square.grid.3x1.below.line.grid.1x2")
+                    styleSelectorTile(style: .titles, title: "Window Titles", symbol: "list.bullet.indent")
+                    styleSelectorTile(style: .cards, title: "Compact Cards", symbol: "rectangle.split.2x2")
                 }
             }
 
             // Sizing, Theme & Placement
             VStack(alignment: .leading, spacing: 8) {
-                sectionTitle("Sizing & theme")
+                sectionHeading("Sizing & placement")
 
-                insetCard {
+                formCard {
                     VStack(spacing: 0) {
                         HStack {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("Card & icon size")
-                                    .font(.system(size: 13, weight: .medium))
-                                Text("Scale dimensions of thumbnails, strips, or tiles in the HUD.")
-                                    .font(.system(size: 11.5))
-                                    .foregroundColor(.secondary)
-                            }
+                            rowLabel(title: "Tile size", subtitle: "Scale window previews, icon strips, and card tiles.")
                             Spacer()
                             Picker("", selection: $settings.cardSize) {
                                 Text("Small").tag(CardSize.small)
@@ -1133,21 +1109,15 @@ public struct SettingsView: View {
                                 Text("Large").tag(CardSize.large)
                             }
                             .pickerStyle(.segmented)
-                            .frame(width: 220)
+                            .frame(width: 204)
                         }
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 12)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
 
-                        insetDivider()
+                        rowDivider()
 
                         HStack {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("Color appearance")
-                                    .font(.system(size: 13, weight: .medium))
-                                Text("Follow macOS System appearance or lock Light / Dark glass.")
-                                    .font(.system(size: 11.5))
-                                    .foregroundColor(.secondary)
-                            }
+                            rowLabel(title: "Color theme", subtitle: "Match macOS System appearance or lock Light / Dark glass.")
                             Spacer()
                             Picker("", selection: $settings.themeMode) {
                                 Text("System").tag(ThemeMode.system)
@@ -1155,119 +1125,89 @@ public struct SettingsView: View {
                                 Text("Dark").tag(ThemeMode.dark)
                             }
                             .pickerStyle(.segmented)
-                            .frame(width: 220)
+                            .frame(width: 204)
                         }
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 12)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
 
-                        insetDivider()
+                        rowDivider()
 
                         HStack {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("Display placement")
-                                    .font(.system(size: 13, weight: .medium))
-                                Text("Choose where the switcher appears on multi-monitor setups.")
-                                    .font(.system(size: 11.5))
-                                    .foregroundColor(.secondary)
-                            }
+                            rowLabel(title: "Display placement", subtitle: "Select which monitor presents the switcher HUD.")
                             Spacer()
                             Picker("", selection: $settings.screenPlacement) {
                                 ForEach(ScreenPlacement.allCases) { placement in
                                     Text(placement.rawValue).tag(placement)
                                 }
                             }
-                            .frame(width: 220)
+                            .frame(width: 190)
                         }
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 12)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
 
-                        insetDivider()
+                        rowDivider()
 
-                        switchRow(
-                            title: "Smooth motion transitions",
-                            subtitle: "Animate switcher focus rings and panel dismissal.",
+                        toggleRow(
+                            title: "Smooth animations",
+                            subtitle: "Animate focus rings and dismissal transitions.",
                             isOn: $settings.animationsEnabled
                         )
                     }
                 }
             }
 
-            // Optics & Surface Styling
+            // Surface & Optics
             VStack(alignment: .leading, spacing: 8) {
-                sectionTitle("Glass & surface")
+                sectionHeading("Optics & accent")
 
-                insetCard {
+                formCard {
                     VStack(spacing: 0) {
                         HStack {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("Accent highlight")
-                                    .font(.system(size: 13, weight: .medium))
-                                Text("Selection ring and active badge tint.")
-                                    .font(.system(size: 11.5))
-                                    .foregroundColor(.secondary)
-                            }
+                            rowLabel(title: "Accent color", subtitle: "Selection highlight ring and active row fill.")
                             Spacer()
                             HStack(spacing: 7) {
-                                accentDot(hex: "#0A84FF")
+                                accentDot(hex: "#007AFF")
                                 accentDot(hex: "#5E5CE6")
                                 accentDot(hex: "#BF5AF2")
                                 accentDot(hex: "#FF375F")
                                 accentDot(hex: "#30D158")
                                 accentDot(hex: "#FF9F0A")
 
-                                TextField("#0A84FF", text: $settings.customAccentColorHex)
+                                TextField("#007AFF", text: $settings.customAccentColorHex)
                                     .textFieldStyle(.roundedBorder)
                                     .font(.system(size: 11, design: .monospaced))
-                                    .frame(width: 72)
+                                    .frame(width: 70)
                             }
                         }
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 12)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
 
-                        insetDivider()
+                        rowDivider()
 
                         HStack {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("HUD corner radius")
-                                    .font(.system(size: 13, weight: .medium))
-                                Text("Curvature of outer switcher container (\(Int(settings.hudCornerRadius)) pt)")
-                                    .font(.system(size: 11.5))
-                                    .foregroundColor(.secondary)
-                            }
+                            rowLabel(title: "Corner curvature", subtitle: "Outer squircle radius of the HUD shell (\(Int(settings.hudCornerRadius)) pt)")
                             Spacer()
                             Slider(value: $settings.hudCornerRadius, in: 16...32, step: 2)
-                                .frame(width: 190)
+                                .frame(width: 184)
                         }
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 12)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
 
-                        insetDivider()
+                        rowDivider()
 
                         HStack {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("Specular border width")
-                                    .font(.system(size: 13, weight: .medium))
-                                Text("Outer rim stroke around the glass surface (\(String(format: "%.1f", settings.borderWidth)) pt)")
-                                    .font(.system(size: 11.5))
-                                    .foregroundColor(.secondary)
-                            }
+                            rowLabel(title: "Specular border", subtitle: "Rim line thickness around the HUD surface (\(String(format: "%.1f", settings.borderWidth)) pt)")
                             Spacer()
                             Slider(value: $settings.borderWidth, in: 0.5...3.0, step: 0.5)
-                                .frame(width: 190)
+                                .frame(width: 184)
                         }
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 12)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
 
-                        insetDivider()
+                        rowDivider()
 
                         HStack {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("Drop shadow depth")
-                                    .font(.system(size: 13, weight: .medium))
-                                Text("Adjust HUD elevation above open desktop windows.")
-                                    .font(.system(size: 11.5))
-                                    .foregroundColor(.secondary)
-                            }
+                            rowLabel(title: "Shadow elevation", subtitle: "Adjust HUD depth and shadow spread above open windows.")
                             Spacer()
                             Picker("", selection: $settings.shadowDepth) {
                                 Text("Subtle").tag("Subtle Depth")
@@ -1275,186 +1215,274 @@ public struct SettingsView: View {
                                 Text("Floating").tag("Floating Deep")
                             }
                             .pickerStyle(.segmented)
-                            .frame(width: 220)
+                            .frame(width: 204)
                         }
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 12)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
                     }
                 }
             }
         }
     }
 
-    private func appearanceStyleCard<Content: View>(
-        style: SwitcherStyle,
-        label: String,
-        description: String,
-        @ViewBuilder content: () -> Content
-    ) -> some View {
+    // Live Interactive macOS Desktop Stage for Appearance
+    private var liveSwitcherDesktopStage: some View {
+        let resolvedDark: Bool = {
+            switch settings.themeMode {
+            case .dark: return true
+            case .light: return false
+            case .system: return colorScheme == .dark
+            }
+        }()
+
+        let accent = settings.accentColor
+        let items: [(app: String, title: String, bundleId: String)] = [
+            ("Terminal", "zsh — build", "com.apple.Terminal"),
+            ("Safari", "Apple Design", "com.apple.Safari"),
+            ("Mail", "Release Notes", "com.apple.mail"),
+            ("Notes", "Architecture", "com.apple.Notes")
+        ]
+        let hudBg = resolvedDark ? Color(white: 0.14).opacity(0.86) : Color(white: 0.96).opacity(0.88)
+        let ink = resolvedDark ? Color.white : Color(white: 0.10)
+        let subInk = resolvedDark ? Color.white.opacity(0.65) : Color.black.opacity(0.55)
+        let shadowRadius: CGFloat = settings.shadowDepth == "Floating Deep" ? 18 : (settings.shadowDepth == "Subtle Depth" ? 4 : 11)
+        let radius = CGFloat(min(settings.hudCornerRadius, 24)) * 0.85
+
+        return ZStack(alignment: .top) {
+            // Calm macOS Sonoma neutral aluminum/slate atmospheric wallpaper
+            LinearGradient(
+                colors: resolvedDark
+                    ? [Color(red: 0.14, green: 0.16, blue: 0.21), Color(red: 0.10, green: 0.11, blue: 0.15)]
+                    : [Color(red: 0.82, green: 0.86, blue: 0.91), Color(red: 0.90, green: 0.88, blue: 0.86)],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+
+            // Mini menu bar sliver
+            HStack(spacing: 10) {
+                Image(systemName: "applelogo")
+                    .font(.system(size: 8))
+                Text("WindowSwitcher")
+                    .font(.system(size: 8.5, weight: .semibold))
+                Spacer()
+                Text("Preview")
+                    .font(.system(size: 8, weight: .medium))
+            }
+            .foregroundColor(ink.opacity(0.8))
+            .padding(.horizontal, 12)
+            .frame(height: 18)
+            .background(resolvedDark ? Color.black.opacity(0.28) : Color.white.opacity(0.45))
+
+            // Centered Live HUD
+            VStack {
+                Spacer(minLength: 20)
+
+                Group {
+                    switch settings.switcherStyle {
+                    case .icons:
+                        HStack(spacing: 10) {
+                            ForEach(Array(items.enumerated()), id: \.offset) { idx, item in
+                                let active = uiState.previewSelectedIndex == idx
+                                Button(action: {
+                                    uiState.previewSelectedIndex = idx
+                                    settings.triggerSwitchFeedback(isCommit: false)
+                                }) {
+                                    VStack(spacing: 4) {
+                                        NativeAppIconView(bundleId: item.bundleId, size: settings.cardSize == .small ? 30 : (settings.cardSize == .large ? 40 : 34))
+                                            .padding(4)
+                                            .background(
+                                                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                                                    .fill(active ? (resolvedDark ? Color.white.opacity(0.18) : Color.black.opacity(0.10)) : Color.clear)
+                                            )
+                                            .overlay(
+                                                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                                                    .stroke(active ? accent.opacity(0.85) : Color.clear, lineWidth: 1.5)
+                                            )
+
+                                        Text(item.app)
+                                            .font(.system(size: 9.5, weight: active ? .semibold : .regular))
+                                            .foregroundColor(active ? ink : subInk)
+                                    }
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 10)
+                        .background(hudBg)
+                        .clipShape(Capsule())
+                        .overlay(Capsule().stroke(ink.opacity(0.14), lineWidth: CGFloat(settings.borderWidth)))
+
+                    case .titles:
+                        VStack(spacing: 2) {
+                            ForEach(Array(items.enumerated()), id: \.offset) { idx, item in
+                                let active = uiState.previewSelectedIndex == idx
+                                Button(action: {
+                                    uiState.previewSelectedIndex = idx
+                                    settings.triggerSwitchFeedback(isCommit: false)
+                                }) {
+                                    HStack(spacing: 8) {
+                                        Text(item.app)
+                                            .font(.system(size: 10, weight: .medium))
+                                            .foregroundColor(active ? .white.opacity(0.92) : subInk)
+                                            .frame(width: 56, alignment: .trailing)
+
+                                        NativeAppIconView(bundleId: item.bundleId, size: 15)
+
+                                        Text(item.title)
+                                            .font(.system(size: 10.5, weight: active ? .semibold : .regular))
+                                            .foregroundColor(active ? .white : ink)
+                                            .lineLimit(1)
+
+                                        Spacer()
+
+                                        if settings.showWindowBadges && idx == 0 {
+                                            Image(systemName: "eye.slash")
+                                                .font(.system(size: 8.5))
+                                                .foregroundColor(active ? .white.opacity(0.85) : subInk)
+                                        }
+                                    }
+                                    .padding(.horizontal, 10)
+                                    .frame(width: 290, height: 22)
+                                    .background(RoundedRectangle(cornerRadius: 5.5, style: .continuous).fill(active ? accent : Color.clear))
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                        .padding(6)
+                        .background(hudBg)
+                        .clipShape(RoundedRectangle(cornerRadius: radius * 0.7, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: radius * 0.7, style: .continuous).stroke(ink.opacity(0.14), lineWidth: CGFloat(settings.borderWidth)))
+
+                    case .cards:
+                        LazyVGrid(columns: [GridItem(.fixed(144), spacing: 7), GridItem(.fixed(144), spacing: 7)], spacing: 7) {
+                            ForEach(Array(items.enumerated()), id: \.offset) { idx, item in
+                                let active = uiState.previewSelectedIndex == idx
+                                Button(action: {
+                                    uiState.previewSelectedIndex = idx
+                                    settings.triggerSwitchFeedback(isCommit: false)
+                                }) {
+                                    HStack(spacing: 7) {
+                                        NativeAppIconView(bundleId: item.bundleId, size: 22)
+                                        VStack(alignment: .leading, spacing: 1) {
+                                            Text(item.title)
+                                                .font(.system(size: 10, weight: .semibold))
+                                                .foregroundColor(active && resolvedDark ? .white : ink)
+                                                .lineLimit(1)
+                                            Text(item.app)
+                                                .font(.system(size: 8.5))
+                                                .foregroundColor(subInk)
+                                        }
+                                        Spacer(minLength: 0)
+                                    }
+                                    .padding(.horizontal, 8)
+                                    .frame(height: 34)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                            .fill(active ? accent.opacity(resolvedDark ? 0.28 : 0.14) : (resolvedDark ? Color.white.opacity(0.06) : Color.black.opacity(0.04)))
+                                    )
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                            .stroke(active ? accent : ink.opacity(0.08), lineWidth: active ? 1.5 : 0.6)
+                                    )
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                        .fixedSize()
+                        .padding(8)
+                        .background(hudBg)
+                        .clipShape(RoundedRectangle(cornerRadius: radius * 0.72, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: radius * 0.72, style: .continuous).stroke(ink.opacity(0.14), lineWidth: CGFloat(settings.borderWidth)))
+
+                    case .thumbnails:
+                        HStack(spacing: 8) {
+                            ForEach(Array(items.enumerated()), id: \.offset) { idx, item in
+                                let active = uiState.previewSelectedIndex == idx
+                                Button(action: {
+                                    uiState.previewSelectedIndex = idx
+                                    settings.triggerSwitchFeedback(isCommit: false)
+                                }) {
+                                    VStack(alignment: .leading, spacing: 5) {
+                                        HStack(spacing: 4) {
+                                            NativeAppIconView(bundleId: item.bundleId, size: 13)
+                                            Text(item.app)
+                                                .font(.system(size: 9, weight: .semibold))
+                                                .foregroundColor(ink)
+                                                .lineLimit(1)
+                                        }
+                                        RoundedRectangle(cornerRadius: 4, style: .continuous)
+                                            .fill(resolvedDark ? Color.white.opacity(0.09) : Color.black.opacity(0.06))
+                                            .overlay(
+                                                VStack(alignment: .leading, spacing: 3) {
+                                                    RoundedRectangle(cornerRadius: 1.5).fill(accent.opacity(0.35)).frame(width: 34, height: 4)
+                                                    RoundedRectangle(cornerRadius: 1.5).fill(ink.opacity(0.14)).frame(width: 52, height: 3)
+                                                    RoundedRectangle(cornerRadius: 1.5).fill(ink.opacity(0.10)).frame(width: 40, height: 3)
+                                                }
+                                                .padding(6),
+                                                alignment: .topLeading
+                                            )
+                                    }
+                                    .padding(6)
+                                    .frame(width: settings.cardSize == .small ? 76 : (settings.cardSize == .large ? 92 : 84), height: 64)
+                                    .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(resolvedDark ? Color.white.opacity(0.06) : Color.white.opacity(0.75)))
+                                    .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(active ? accent : ink.opacity(0.10), lineWidth: active ? 1.8 : 0.7))
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                        .padding(10)
+                        .background(hudBg)
+                        .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: radius, style: .continuous).stroke(ink.opacity(0.14), lineWidth: CGFloat(settings.borderWidth)))
+                    }
+                }
+                .shadow(color: Color.black.opacity(resolvedDark ? 0.45 : 0.16), radius: shadowRadius, y: 4)
+
+                Spacer(minLength: 16)
+            }
+        }
+        .frame(height: 152)
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(groupHairline, lineWidth: 0.75))
+    }
+
+    private func styleSelectorTile(style: SwitcherStyle, title: String, symbol: String) -> some View {
         let isSelected = settings.switcherStyle == style
         let isHovered = uiState.hoveredStyle == style && !isSelected
         let accent = settings.accentColor
 
         return Button(action: {
-            withAnimation(.easeInOut(duration: 0.16)) {
-                settings.switcherStyle = style
-            }
+            settings.switcherStyle = style
+            settings.triggerSwitchFeedback(isCommit: false)
         }) {
-            VStack(alignment: .leading, spacing: 0) {
-                content()
-                    .frame(height: 82)
-                    .frame(maxWidth: .infinity)
-                    .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-                    .padding(6)
+            VStack(spacing: 6) {
+                Image(systemName: symbol)
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundColor(isSelected ? accent : .secondary)
 
-                HStack(alignment: .center, spacing: 8) {
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(label)
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundColor(.primary)
-                        Text(description)
-                            .font(.system(size: 11))
-                            .foregroundColor(.secondary)
-                            .lineLimit(1)
-                    }
-
-                    Spacer()
-
-                    if isSelected {
-                        Image(systemName: "checkmark.circle.fill")
-                            .font(.system(size: 15))
-                            .foregroundColor(accent)
-                    } else {
-                        Circle()
-                            .stroke(Color.primary.opacity(0.20), lineWidth: 1.2)
-                            .frame(width: 15, height: 15)
-                    }
-                }
-                .padding(.horizontal, 10)
-                .padding(.bottom, 10)
-                .padding(.top, 2)
+                Text(title)
+                    .font(.system(size: 11.5, weight: isSelected ? .semibold : .medium))
+                    .foregroundColor(.primary)
+                    .lineLimit(1)
             }
-            .background(cardSurface)
-            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .frame(maxWidth: .infinity)
+            .frame(height: 58)
+            .background(groupSurface)
+            .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
             .overlay(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                RoundedRectangle(cornerRadius: 9, style: .continuous)
                     .stroke(
-                        isSelected ? accent : (isHovered ? Color.primary.opacity(0.18) : cardHairline),
-                        lineWidth: isSelected ? 2 : 0.75
+                        isSelected ? accent : (isHovered ? Color.primary.opacity(0.18) : groupHairline),
+                        lineWidth: isSelected ? 1.75 : 0.75
                     )
             )
-            .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
         }
         .buttonStyle(.plain)
         .onHover { hovering in
             uiState.hoveredStyle = hovering ? style : (uiState.hoveredStyle == style ? nil : uiState.hoveredStyle)
         }
-    }
-
-    private func miniThumbnailCard(isSelected: Bool) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 4) {
-                Circle()
-                    .fill(isSelected ? settings.accentColor : Color.white.opacity(0.35))
-                    .frame(width: 7, height: 7)
-                RoundedRectangle(cornerRadius: 1.5)
-                    .fill(Color.white.opacity(0.45))
-                    .frame(width: 34, height: 4)
-                Spacer()
-            }
-            RoundedRectangle(cornerRadius: 3, style: .continuous)
-                .fill(Color.white.opacity(isSelected ? 0.20 : 0.10))
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-        }
-        .padding(5)
-        .frame(width: 82, height: 52)
-        .background(
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                .fill(Color.white.opacity(0.08))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                .stroke(isSelected ? settings.accentColor : Color.white.opacity(0.12), lineWidth: isSelected ? 1.5 : 0.6)
-        )
-    }
-
-    private func miniCmdTabIcon(symbol: String, bg: Color, name: String, isSelected: Bool) -> some View {
-        VStack(spacing: 3) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(bg)
-                    .frame(width: 24, height: 24)
-                Image(systemName: symbol)
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundColor(.white)
-            }
-            .padding(3)
-            .background(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(isSelected ? Color.white.opacity(0.22) : Color.clear)
-            )
-
-            Text(name)
-                .font(.system(size: 7.5, weight: isSelected ? .bold : .medium))
-                .foregroundColor(.white.opacity(isSelected ? 1.0 : 0.72))
-        }
-    }
-
-    private func miniTitleRow(app: String, color: Color, title: String, isSelected: Bool) -> some View {
-        HStack(spacing: 5) {
-            Text(app)
-                .font(.system(size: 8, weight: .medium))
-                .foregroundColor(.white.opacity(isSelected ? 0.98 : 0.60))
-                .frame(width: 34, alignment: .trailing)
-
-            RoundedRectangle(cornerRadius: 2.5, style: .continuous)
-                .fill(color)
-                .frame(width: 9, height: 9)
-
-            Text(title)
-                .font(.system(size: 8.5, weight: isSelected ? .semibold : .regular))
-                .foregroundColor(.white.opacity(isSelected ? 1.0 : 0.80))
-                .lineLimit(1)
-
-            Spacer()
-        }
-        .padding(.horizontal, 6)
-        .padding(.vertical, 2.5)
-        .background(
-            RoundedRectangle(cornerRadius: 4, style: .continuous)
-                .fill(isSelected ? settings.accentColor : Color.clear)
-        )
-    }
-
-    private func miniCompactCard(app: String, title: String, color: Color, isSelected: Bool) -> some View {
-        HStack(spacing: 6) {
-            RoundedRectangle(cornerRadius: 4.5, style: .continuous)
-                .fill(color)
-                .frame(width: 18, height: 18)
-
-            VStack(alignment: .leading, spacing: 1) {
-                Text(title)
-                    .font(.system(size: 8.5, weight: .semibold))
-                    .foregroundColor(.white)
-                    .lineLimit(1)
-                Text(app)
-                    .font(.system(size: 7))
-                    .foregroundColor(.white.opacity(0.60))
-                    .lineLimit(1)
-            }
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, 6)
-        .padding(.vertical, 5)
-        .frame(maxWidth: .infinity)
-        .background(
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                .fill(isSelected ? Color.white.opacity(0.16) : Color.white.opacity(0.07))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                .stroke(isSelected ? settings.accentColor : Color.white.opacity(0.10), lineWidth: isSelected ? 1.4 : 0.6)
-        )
     }
 
     private func accentDot(hex: String) -> some View {
@@ -1465,14 +1493,9 @@ public struct SettingsView: View {
             settings.customAccentColorHex = hex
         }) {
             ZStack {
-                Circle()
-                    .fill(color)
-                    .frame(width: 18, height: 18)
-
+                Circle().fill(color).frame(width: 16, height: 16)
                 if isSelected {
-                    Circle()
-                        .strokeBorder(Color.white, lineWidth: 2)
-                        .frame(width: 14, height: 14)
+                    Circle().strokeBorder(Color.white, lineWidth: 2).frame(width: 12, height: 12)
                 }
             }
         }
@@ -1482,201 +1505,156 @@ public struct SettingsView: View {
     // MARK: - 5. Apps & Rules Pane
 
     private var appsPane: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack {
-                paneHeader(for: .apps)
-                Spacer()
-                Button(action: chooseApplicationFromDisk) {
-                    HStack(spacing: 5) {
-                        Image(systemName: "plus")
-                            .font(.system(size: 11, weight: .semibold))
-                        Text("Add App")
-                            .font(.system(size: 12, weight: .medium))
-                    }
-                    .padding(.horizontal, 12)
-                    .frame(height: 28)
-                    .background(cardSurface)
-                    .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 7, style: .continuous)
-                            .stroke(cardHairline, lineWidth: 0.75)
-                    )
-                }
-                .buttonStyle(.plain)
-            }
+        HStack(alignment: .top, spacing: 14) {
+            formCard {
+                VStack(spacing: 0) {
+                    ScrollView(.vertical, showsIndicators: false) {
+                        VStack(spacing: 2) {
+                            ForEach(settings.exceptionsList) { app in
+                                let isSelected = uiState.selectedExceptionId == app.bundleId
+                                Button(action: { uiState.selectedExceptionId = app.bundleId }) {
+                                    HStack(spacing: 9) {
+                                        NativeAppIconView(bundleId: app.bundleId, size: 22)
 
-            HStack(alignment: .top, spacing: 14) {
-                // Left Sidebar List of Configured Applications
-                insetCard {
-                    VStack(spacing: 0) {
-                        ScrollView(.vertical, showsIndicators: false) {
-                            VStack(spacing: 2) {
-                                ForEach(settings.exceptionsList) { app in
-                                    let isSelected = uiState.selectedExceptionId == app.bundleId
-                                    Button(action: {
-                                        uiState.selectedExceptionId = app.bundleId
-                                    }) {
-                                        HStack(spacing: 9) {
-                                            NativeAppIconView(bundleId: app.bundleId, size: 22)
+                                        VStack(alignment: .leading, spacing: 1) {
+                                            Text(app.name)
+                                                .font(.system(size: 12.5, weight: isSelected ? .semibold : .regular))
+                                                .foregroundColor(isSelected ? .white : .primary)
+                                                .lineLimit(1)
 
-                                            VStack(alignment: .leading, spacing: 1) {
-                                                Text(app.name)
-                                                    .font(.system(size: 12.5, weight: isSelected ? .semibold : .regular))
-                                                    .foregroundColor(isSelected ? .white : .primary)
-                                                    .lineLimit(1)
-
+                                            if settings.showDetailsInSettings {
                                                 Text(app.ignoreShortcuts == "When in focus" ? "Pass-through" : "Switcher Rule")
                                                     .font(.system(size: 10))
-                                                    .foregroundColor(isSelected ? .white.opacity(0.85) : .secondary)
+                                                    .foregroundColor(isSelected ? .white.opacity(0.82) : .secondary)
                                             }
-                                            Spacer(minLength: 0)
                                         }
-                                        .padding(.horizontal, 10)
-                                        .padding(.vertical, 7)
-                                        .background(
-                                            RoundedRectangle(cornerRadius: 7, style: .continuous)
-                                                .fill(isSelected ? Color(red: 0.039, green: 0.518, blue: 1.0) : Color.clear)
-                                        )
-                                        .contentShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+                                        Spacer(minLength: 0)
                                     }
-                                    .buttonStyle(.plain)
+                                    .padding(.horizontal, 9)
+                                    .padding(.vertical, 6)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 6.5, style: .continuous)
+                                            .fill(isSelected ? sidebarBlue : Color.clear)
+                                    )
+                                    .contentShape(RoundedRectangle(cornerRadius: 6.5, style: .continuous))
                                 }
+                                .buttonStyle(.plain)
                             }
-                            .padding(8)
                         }
-
-                        insetDivider(leading: 0)
-
-                        HStack(spacing: 0) {
-                            Button(action: chooseApplicationFromDisk) {
-                                Image(systemName: "plus")
-                                    .font(.system(size: 12, weight: .medium))
-                                    .frame(width: 30, height: 26)
-                                    .contentShape(Rectangle())
-                            }
-                            .buttonStyle(.plain)
-
-                            Rectangle()
-                                .fill(cardHairline)
-                                .frame(width: 1, height: 14)
-
-                            Button(action: removeSelectedException) {
-                                Image(systemName: "minus")
-                                    .font(.system(size: 12, weight: .medium))
-                                    .foregroundColor(canRemoveSelected ? .primary : .secondary.opacity(0.4))
-                                    .frame(width: 30, height: 26)
-                                    .contentShape(Rectangle())
-                            }
-                            .buttonStyle(.plain)
-                            .disabled(!canRemoveSelected)
-
-                            Spacer()
-                        }
-                        .padding(.horizontal, 4)
+                        .padding(6)
                     }
-                }
-                .frame(width: 210)
-                .frame(maxHeight: .infinity)
 
-                // Right Rule Inspector
-                if let index = settings.exceptionsList.firstIndex(where: { $0.bundleId == uiState.selectedExceptionId }) {
-                    let selectedApp = settings.exceptionsList[index]
+                    rowDivider(leading: 0)
 
-                    VStack(alignment: .leading, spacing: 14) {
-                        insetCard {
-                            HStack(spacing: 12) {
-                                NativeAppIconView(bundleId: selectedApp.bundleId, size: 42)
-
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(selectedApp.name)
-                                        .font(.system(size: 15, weight: .bold))
-                                    Text(selectedApp.bundleId)
-                                        .font(.system(size: 11, design: .monospaced))
-                                        .foregroundColor(.secondary)
-                                }
-
-                                Spacer()
-                            }
-                            .padding(16)
+                    HStack(spacing: 0) {
+                        Button(action: chooseApplicationFromDisk) {
+                            Image(systemName: "plus")
+                                .font(.system(size: 12, weight: .medium))
+                                .frame(width: 30, height: 26)
+                                .contentShape(Rectangle())
                         }
+                        .buttonStyle(.plain)
 
-                        insetCard {
-                            VStack(spacing: 0) {
-                                HStack {
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text("Global shortcuts")
-                                            .font(.system(size: 13, weight: .medium))
-                                        Text("Ignore Window Switcher triggers when this app is frontmost.")
-                                            .font(.system(size: 11.5))
-                                            .foregroundColor(.secondary)
-                                    }
-                                    Spacer()
-                                    Picker("", selection: Binding(
-                                        get: { settings.exceptionsList[index].ignoreShortcuts },
-                                        set: { settings.exceptionsList[index].ignoreShortcuts = $0 }
-                                    )) {
-                                        Text("Pass-through").tag("When in focus")
-                                        Text("Active normally").tag("Never")
-                                    }
-                                    .frame(width: 150)
-                                }
-                                .padding(.horizontal, 16)
-                                .padding(.vertical, 12)
+                        Rectangle().fill(groupHairline).frame(width: 1, height: 14)
 
-                                insetDivider()
-
-                                HStack {
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text("HUD visibility")
-                                            .font(.system(size: 13, weight: .medium))
-                                        Text("Control whether this app appears inside the switcher strip.")
-                                            .font(.system(size: 11.5))
-                                            .foregroundColor(.secondary)
-                                    }
-                                    Spacer()
-                                    Picker("", selection: Binding(
-                                        get: { settings.exceptionsList[index].hideWindows },
-                                        set: { settings.exceptionsList[index].hideWindows = $0 }
-                                    )) {
-                                        Text("Hide when empty").tag("When no open window")
-                                        Text("Always hide").tag("Always")
-                                        Text("Always show").tag("Never")
-                                    }
-                                    .frame(width: 150)
-                                }
-                                .padding(.horizontal, 16)
-                                .padding(.vertical, 12)
-                            }
+                        Button(action: removeSelectedException) {
+                            Image(systemName: "minus")
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundColor(canRemoveSelected ? .primary : .secondary.opacity(0.4))
+                                .frame(width: 30, height: 26)
+                                .contentShape(Rectangle())
                         }
+                        .buttonStyle(.plain)
+                        .disabled(!canRemoveSelected)
 
                         Spacer()
                     }
-                    .frame(maxWidth: .infinity)
-                } else {
-                    insetCard {
-                        VStack(spacing: 10) {
-                            Image(systemName: "app.dashed")
-                                .font(.system(size: 28, weight: .light))
-                                .foregroundColor(.secondary)
-                            Text("No application selected")
-                                .font(.system(size: 14, weight: .semibold))
-                            Text("Add an application to configure per-app pass-through shortcuts or visibility rules.")
-                                .font(.system(size: 12))
-                                .foregroundColor(.secondary)
-                                .multilineTextAlignment(.center)
-                                .frame(maxWidth: 280)
-                            Button("Add App…", action: chooseApplicationFromDisk)
-                                .buttonStyle(.borderedProminent)
-                                .controlSize(.small)
-                                .padding(.top, 4)
-                        }
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .padding(24)
-                    }
+                    .padding(.horizontal, 4)
                 }
             }
+            .frame(width: 204)
             .frame(maxHeight: .infinity)
+
+            if let index = settings.exceptionsList.firstIndex(where: { $0.bundleId == uiState.selectedExceptionId }) {
+                let selectedApp = settings.exceptionsList[index]
+
+                VStack(alignment: .leading, spacing: 14) {
+                    formCard {
+                        HStack(spacing: 12) {
+                            NativeAppIconView(bundleId: selectedApp.bundleId, size: 38)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(selectedApp.name)
+                                    .font(.system(size: 14.5, weight: .semibold))
+                                Text(selectedApp.bundleId)
+                                    .font(.system(size: 11, design: .monospaced))
+                                    .foregroundColor(.secondary)
+                            }
+                            Spacer()
+                        }
+                        .padding(14)
+                    }
+
+                    formCard {
+                        VStack(spacing: 0) {
+                            HStack {
+                                rowLabel(title: "Global shortcuts", subtitle: "Bypass Window Switcher triggers when this app is frontmost.")
+                                Spacer()
+                                Picker("", selection: Binding(
+                                    get: { settings.exceptionsList[index].ignoreShortcuts },
+                                    set: { settings.exceptionsList[index].ignoreShortcuts = $0 }
+                                )) {
+                                    Text("Pass-through").tag("When in focus")
+                                    Text("Active normally").tag("Never")
+                                }
+                                .frame(width: 168)
+                            }
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 10)
+
+                            rowDivider()
+
+                            HStack {
+                                rowLabel(title: "HUD visibility", subtitle: "Control whether this application appears inside the switcher.")
+                                Spacer()
+                                Picker("", selection: Binding(
+                                    get: { settings.exceptionsList[index].hideWindows },
+                                    set: { settings.exceptionsList[index].hideWindows = $0 }
+                                )) {
+                                    Text("Hide when empty").tag("When no open window")
+                                    Text("Always hide").tag("Always")
+                                    Text("Always show").tag("Never")
+                                }
+                                .frame(width: 168)
+                            }
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 10)
+                        }
+                    }
+                    Spacer()
+                }
+                .frame(maxWidth: .infinity)
+            } else {
+                formCard {
+                    VStack(spacing: 8) {
+                        Image(systemName: "app.dashed")
+                            .font(.system(size: 26, weight: .light))
+                            .foregroundColor(.secondary)
+                        Text("No application selected")
+                            .font(.system(size: 13.5, weight: .semibold))
+                        Text("Add an application to configure per-app pass-through shortcuts or visibility rules.")
+                            .font(.system(size: 11.5))
+                            .foregroundColor(.secondary)
+                            .multilineTextAlignment(.center)
+                            .frame(maxWidth: 260)
+                        compactActionButton("Add App…", action: chooseApplicationFromDisk)
+                            .padding(.top, 4)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .padding(20)
+                }
+            }
         }
+        .frame(maxHeight: .infinity)
     }
 
     private var canRemoveSelected: Bool {
@@ -1688,180 +1666,208 @@ public struct SettingsView: View {
         uiState.selectedExceptionId = settings.exceptionsList.first?.bundleId ?? ""
     }
 
-    // MARK: - 6. General Pane (System, Permissions, Updates, Maintenance)
+    // MARK: - 6. General Pane (Inspired by macOS Sequoia Reference: Startup, Feedback, Updates, Backup)
 
     private var generalPane: some View {
         VStack(alignment: .leading, spacing: 20) {
-            paneHeader(for: .general)
-
-            // System Integration
+            // Startup
             VStack(alignment: .leading, spacing: 8) {
-                sectionTitle("System & startup")
+                sectionHeading("Startup")
 
-                insetCard {
+                formCard {
                     VStack(spacing: 0) {
-                        switchRow(
-                            title: "Start at login",
-                            subtitle: "Launch Window Switcher automatically when you sign in.",
+                        toggleRow(
+                            title: "Launch at login",
+                            subtitle: "Open Window Switcher automatically when you log in.",
                             isOn: $settings.startAtLogin
                         )
 
-                        insetDivider()
+                        rowDivider()
 
-                        switchRow(
+                        toggleRow(
                             title: "Show menu bar icon",
-                            subtitle: "Display quick settings and capture actions in the macOS menu bar.",
+                            subtitle: "Display the icon in the menu bar. Reopen Preferences anytime from Spotlight.",
                             isOn: $settings.showMenubarIcon
                         )
 
-                        insetDivider()
+                        rowDivider()
 
-                        switchRow(
+                        toggleRow(
                             title: "Background thumbnail cache",
-                            subtitle: "Pre-capture open window previews so the HUD opens in 0 ms.",
+                            subtitle: "Pre-capture open window previews so the HUD appears instantaneously.",
                             isOn: $settings.captureInBackground
                         )
                     }
                 }
             }
 
-            // macOS Privacy Permissions
+            // Feedback (Real macOS Haptics & Switch Audio)
             VStack(alignment: .leading, spacing: 8) {
-                sectionTitle("Permissions")
+                sectionHeading("Feedback")
 
-                insetCard {
-                    VStack(spacing: 0) {
-                        permissionRow(
-                            symbol: "accessibility",
-                            color: Color(red: 0.039, green: 0.518, blue: 1.0),
-                            title: "Accessibility",
-                            subtitle: "Required for global Option/Command-Tab interception and window focus.",
-                            granted: permissions.hasAccessibility,
-                            action: { permissions.requestAccessibility() }
-                        )
-
-                        insetDivider(leading: 50)
-
-                        permissionRow(
-                            symbol: "record.circle",
-                            color: Color(red: 0.188, green: 0.820, blue: 0.345),
-                            title: "Screen Recording",
-                            subtitle: "Required for frozen frame screenshots, window previews, and Designer Studio.",
-                            granted: permissions.hasScreenRecording,
-                            action: { permissions.requestScreenRecording() }
-                        )
-                    }
-                }
-            }
-
-            // Software Updates
-            VStack(alignment: .leading, spacing: 8) {
-                sectionTitle("Software updates")
-
-                insetCard {
+                formCard {
                     VStack(spacing: 0) {
                         HStack(spacing: 12) {
-                            AppBrandingIcon(size: 36, cornerRadius: 8)
-
-                            VStack(alignment: .leading, spacing: 2) {
-                                HStack(spacing: 6) {
-                                    Text("Window Switcher")
-                                        .font(.system(size: 13.5, weight: .semibold))
-                                    Text("v\(updater.currentVersion)")
-                                        .font(.system(size: 11, weight: .medium, design: .monospaced))
-                                        .foregroundColor(.secondary)
+                            rowLabel(
+                                title: "Haptic feedback on switch",
+                                subtitle: "A subtle tap when cycling or selecting a window. Force Touch trackpads."
+                            )
+                            Spacer(minLength: 12)
+                            Toggle("", isOn: Binding(
+                                get: { settings.hapticFeedbackOnSwitch },
+                                set: { newValue in
+                                    settings.hapticFeedbackOnSwitch = newValue
+                                    if newValue {
+                                        NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .now)
+                                    }
                                 }
-                                updateStatusSubtitle
-                            }
-
-                            Spacer()
-
-                            updateActionButton
+                            ))
+                            .toggleStyle(.switch)
+                            .labelsHidden()
                         }
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 14)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
 
-                        insetDivider()
+                        rowDivider()
 
-                        HStack {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("Check for updates")
-                                    .font(.system(size: 13, weight: .medium))
-                                Text("Fetch release builds directly from GitHub Releases.")
-                                    .font(.system(size: 11.5))
-                                    .foregroundColor(.secondary)
-                            }
+                        HStack(spacing: 12) {
+                            rowLabel(
+                                title: "Sound on switch",
+                                subtitle: "Play a crisp system sound when stepping between windows."
+                            )
                             Spacer()
-                            Picker("", selection: $settings.updatePolicy) {
-                                Text("Automatically on launch").tag("Check for updates periodically")
-                                Text("Manually only").tag("Check manually")
+                            Picker("", selection: Binding(
+                                get: { settings.soundOnSwitch },
+                                set: { newValue in
+                                    settings.soundOnSwitch = newValue
+                                    if newValue != "Off", let sound = NSSound(named: NSSound.Name(newValue)) {
+                                        sound.volume = 0.25
+                                        sound.play()
+                                    }
+                                }
+                            )) {
+                                Text("Off").tag("Off")
+                                Text("Tink").tag("Tink")
+                                Text("Pop").tag("Pop")
+                                Text("Morse").tag("Morse")
                             }
-                            .frame(width: 210)
+                            .frame(width: 112)
                         }
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 12)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
                     }
                 }
             }
 
-            // Reset Maintenance Row
-            HStack {
-                if uiState.didConfirmReset {
-                    Text("Preferences restored to factory defaults.")
-                        .font(.system(size: 12))
-                        .foregroundColor(.secondary)
-                }
+            // Updates
+            VStack(alignment: .leading, spacing: 8) {
+                sectionHeading("Updates")
 
-                Spacer()
+                formCard {
+                    VStack(spacing: 0) {
+                        HStack(spacing: 12) {
+                            rowLabel(
+                                title: "Check for updates",
+                                subtitle: updateStatusLine
+                            )
+                            Spacer()
+                            updateActionButton
+                            Picker("", selection: $settings.updatePolicy) {
+                                Text("Automatic").tag("Check for updates periodically")
+                                Text("Manual").tag("Check manually")
+                            }
+                            .frame(width: 116)
+                        }
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
 
-                Button("Reset All Settings to Defaults") {
-                    settings.resetToDefaults()
-                    uiState.didConfirmReset = true
+                        rowDivider()
+
+                        toggleRow(
+                            title: "Include beta releases",
+                            subtitle: "Receive pre-release builds from GitHub Releases when available.",
+                            isOn: $settings.includeBetaReleases
+                        )
+                    }
                 }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
             }
-            .padding(.top, 2)
+
+            // Backup
+            VStack(alignment: .leading, spacing: 8) {
+                sectionHeading("Backup")
+
+                formCard {
+                    VStack(spacing: 0) {
+                        HStack {
+                            rowLabel(
+                                title: "Export settings",
+                                subtitle: "Save all your settings to a JSON file you can back up or move to another Mac."
+                            )
+                            Spacer()
+                            compactActionButton("Export…", action: exportSettingsToDisk)
+                        }
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
+
+                        rowDivider()
+
+                        HStack {
+                            rowLabel(
+                                title: "Import settings",
+                                subtitle: "Replace your current configuration from a previously exported file."
+                            )
+                            Spacer()
+                            compactActionButton("Import…", action: importSettingsFromDisk)
+                        }
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
+
+                        rowDivider()
+
+                        HStack {
+                            rowLabel(
+                                title: "Reset all preferences",
+                                subtitle: "Restore every shortcut, style, and rule back to defaults."
+                            )
+                            Spacer()
+                            compactActionButton("Reset…") {
+                                settings.resetToDefaults()
+                                uiState.flashStatus("Preferences restored to factory defaults")
+                            }
+                        }
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
+                    }
+                }
+
+                if let msg = uiState.statusMessage {
+                    Text(msg)
+                        .font(.system(size: 11.5, weight: .medium))
+                        .foregroundColor(sidebarBlue)
+                        .padding(.leading, 4)
+                }
+            }
         }
     }
 
-    @ViewBuilder
-    private var updateStatusSubtitle: some View {
+    private var updateStatusLine: String {
         switch updater.status {
         case .idle:
-            Text("Ready to check GitHub Releases for newer builds.")
-                .font(.system(size: 11.5))
-                .foregroundColor(.secondary)
+            return "Current version v\(updater.currentVersion) — ready to check GitHub Releases."
         case .checking:
-            Text("Checking GitHub Releases…")
-                .font(.system(size: 11.5))
-                .foregroundColor(.secondary)
+            return "Checking GitHub Releases…"
         case .upToDate(let ver):
-            Text("You are up to date on version \(ver).")
-                .font(.system(size: 11.5))
-                .foregroundColor(Color(red: 0.16, green: 0.72, blue: 0.30))
-        case .available(let ver, let notes, _, _):
-            Text("Version \(ver) available — \(notes)")
-                .font(.system(size: 11.5))
-                .foregroundColor(Color(red: 0.039, green: 0.518, blue: 1.0))
-                .lineLimit(1)
+            return "Up to date on v\(ver)."
+        case .available(let ver, _, _, _):
+            return "Version \(ver) is available to install."
         case .downloading(let progress):
-            Text("Downloading update… \(Int(progress * 100))%")
-                .font(.system(size: 11.5, design: .monospaced))
-                .foregroundColor(.secondary)
+            return "Downloading update (\(Int(progress * 100))%)…"
         case .installing:
-            Text("Installing update into /Applications…")
-                .font(.system(size: 11.5))
-                .foregroundColor(.secondary)
+            return "Installing update into /Applications…"
         case .readyToRelaunch:
-            Text("Update installed. Relaunch Window Switcher to finish.")
-                .font(.system(size: 11.5))
-                .foregroundColor(Color(red: 0.16, green: 0.72, blue: 0.30))
+            return "Update installed. Relaunch Window Switcher to complete."
         case .error(let msg):
-            Text("Unable to check: \(msg)")
-                .font(.system(size: 11.5))
-                .foregroundColor(.red)
-                .lineLimit(1)
+            return "Unable to check: \(msg)"
         }
     }
 
@@ -1869,136 +1875,272 @@ public struct SettingsView: View {
     private var updateActionButton: some View {
         switch updater.status {
         case .checking, .downloading, .installing:
-            ProgressView()
-                .controlSize(.small)
+            ProgressView().controlSize(.small)
         case .available(_, _, let downloadUrl, _):
-            Button("Download & Install") {
-                updater.downloadAndInstall(from: downloadUrl)
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.small)
+            compactActionButton("Install") { updater.downloadAndInstall(from: downloadUrl) }
         case .readyToRelaunch:
-            Button("Relaunch Now") {
-                updater.relaunch()
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.small)
+            compactActionButton("Relaunch") { updater.relaunch() }
         default:
-            Button("Check Now") {
-                updater.checkForUpdates(userInitiated: true)
-            }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
+            compactActionButton("Check Now") { updater.checkForUpdates(userInitiated: true) }
         }
     }
 
-    private func permissionRow(
-        symbol: String,
-        color: Color,
-        title: String,
-        subtitle: String,
-        granted: Bool,
-        action: @escaping () -> Void
-    ) -> some View {
-        HStack(spacing: 12) {
-            SquircleBadge(symbol: symbol, color: color, size: 22, cornerRadius: 5.5, symbolSize: 11)
+    // MARK: - 7. Privacy Pane
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(.system(size: 13, weight: .medium))
-                Text(subtitle)
-                    .font(.system(size: 11.5))
-                    .foregroundColor(.secondary)
+    private var privacyPane: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            VStack(alignment: .leading, spacing: 8) {
+                sectionHeading("System permissions")
+
+                formCard {
+                    VStack(spacing: 0) {
+                        permissionRow(
+                            title: "Accessibility",
+                            subtitle: "Intercept Option/Command-Tab shortcuts and focus windows across spaces.",
+                            granted: permissions.hasAccessibility,
+                            action: { permissions.requestAccessibility() }
+                        )
+
+                        rowDivider()
+
+                        permissionRow(
+                            title: "Screen Recording",
+                            subtitle: "Capture frozen frames, live window thumbnails, and Designer Studio measurements.",
+                            granted: permissions.hasScreenRecording,
+                            action: { permissions.requestScreenRecording() }
+                        )
+                    }
+                }
             }
 
-            Spacer()
+            VStack(alignment: .leading, spacing: 8) {
+                sectionHeading("Data & local processing")
 
+                formCard {
+                    VStack(spacing: 0) {
+                        HStack {
+                            rowLabel(
+                                title: "On-device capture & OCR",
+                                subtitle: "All screenshots, pixel buffers, and text recognition run locally using Apple Vision and ScreenCaptureKit. Nothing leaves your Mac."
+                            )
+                            Spacer()
+                            Text("Local Only")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundColor(Color(red: 0.16, green: 0.72, blue: 0.30))
+                                .padding(.horizontal, 9)
+                                .frame(height: 22)
+                                .background(Capsule().fill(Color(red: 0.188, green: 0.820, blue: 0.345).opacity(0.14)))
+                        }
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 12)
+                    }
+                }
+            }
+        }
+    }
+
+    private func permissionRow(title: String, subtitle: String, granted: Bool, action: @escaping () -> Void) -> some View {
+        HStack(spacing: 12) {
+            rowLabel(title: title, subtitle: subtitle)
+            Spacer()
             if granted {
                 HStack(spacing: 4) {
                     Image(systemName: "checkmark.circle.fill")
                         .font(.system(size: 12))
                     Text("Granted")
-                        .font(.system(size: 11.5, weight: .medium))
+                        .font(.system(size: 12, weight: .medium))
                 }
                 .foregroundColor(Color(red: 0.16, green: 0.72, blue: 0.30))
             } else {
-                Button("Grant", action: action)
+                Button("Grant Access", action: action)
                     .buttonStyle(.borderedProminent)
                     .controlSize(.small)
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
     }
 
-    // MARK: - Shared Apple System Settings Primitives
+    // MARK: - 8. About Pane
 
-    private func paneHeader(for tab: SettingsTab) -> some View {
-        HStack(spacing: 12) {
-            SquircleBadge(
-                symbol: tab.icon,
-                color: tab.badgeColor,
-                size: 28,
-                cornerRadius: 7,
-                symbolSize: 14
-            )
+    private var aboutPane: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            formCard {
+                HStack(spacing: 16) {
+                    AppBrandingIcon(size: 54, cornerRadius: 12.5)
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text(tab.rawValue)
-                    .font(.system(size: 20, weight: .bold))
-                Text(tab.subtitle)
-                    .font(.system(size: 12))
-                    .foregroundColor(.secondary)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Window Switcher")
+                            .font(.system(size: 16, weight: .semibold))
+                        Text("Version \(updater.currentVersion) · Apple Silicon (arm64)")
+                            .font(.system(size: 12, design: .monospaced))
+                            .foregroundColor(.secondary)
+                        Text("Frozen-frame pixel screenshot studio and 60 FPS native window switcher for macOS.")
+                            .font(.system(size: 12))
+                            .foregroundColor(.secondary)
+                            .padding(.top, 2)
+                    }
+
+                    Spacer()
+                }
+                .padding(16)
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                sectionHeading("Project & releases")
+
+                formCard {
+                    VStack(spacing: 0) {
+                        HStack {
+                            rowLabel(title: "GitHub Repository", subtitle: "github.com/TheLegend96/WindowSwitcher")
+                            Spacer()
+                            compactActionButton("Open") {
+                                if let url = URL(string: "https://github.com/TheLegend96/WindowSwitcher") {
+                                    NSWorkspace.shared.open(url)
+                                }
+                            }
+                        }
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
+
+                        rowDivider()
+
+                        HStack {
+                            rowLabel(title: "Check for newer releases", subtitle: "Compare installed bundle against latest tagged release")
+                            Spacer()
+                            compactActionButton("Check Now") {
+                                uiState.selectedTab = .general
+                                updater.checkForUpdates(userInitiated: true)
+                            }
+                        }
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 10)
+                    }
+                }
             }
         }
     }
 
-    private func sectionTitle(_ title: String) -> some View {
+    // MARK: - Shared Pure Sheet Building Blocks
+
+    private func sectionHeading(_ title: String) -> some View {
         Text(title)
-            .font(.system(size: 12.5, weight: .semibold))
-            .foregroundColor(.secondary)
-            .padding(.leading, 4)
+            .font(.system(size: 13, weight: .semibold))
+            .foregroundColor(.primary)
+            .padding(.leading, 2)
     }
 
-    private func insetCard<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+    private func formCard<Content: View>(@ViewBuilder content: () -> Content) -> some View {
         content()
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(cardSurface)
+            .background(groupSurface)
             .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .stroke(cardHairline, lineWidth: 0.75)
+                    .stroke(groupHairline, lineWidth: 0.75)
             )
     }
 
-    private func insetDivider(leading: CGFloat = 16) -> some View {
+    private func rowDivider(leading: CGFloat = 14) -> some View {
         Rectangle()
-            .fill(cardHairline)
+            .fill(groupHairline)
             .frame(height: 1)
             .padding(.leading, leading)
     }
 
-    private func switchRow(title: String, subtitle: String, isOn: Binding<Bool>) -> some View {
-        HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(.system(size: 13, weight: .medium))
+    private func rowLabel(title: String, subtitle: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundColor(.primary)
+
+            if settings.showDetailsInSettings {
                 Text(subtitle)
                     .font(.system(size: 11.5))
                     .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
+        }
+    }
 
+    private func toggleRow(title: String, subtitle: String, isOn: Binding<Bool>) -> some View {
+        HStack(spacing: 12) {
+            rowLabel(title: title, subtitle: subtitle)
             Spacer(minLength: 12)
-
             Toggle("", isOn: isOn)
                 .toggleStyle(.switch)
                 .labelsHidden()
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
     }
 
-    // MARK: - App Open Panel Helper
+    private func menuRow(title: String, subtitle: String, selection: Binding<String>, options: [(label: String, tag: String)]) -> some View {
+        HStack(spacing: 12) {
+            rowLabel(title: title, subtitle: subtitle)
+            Spacer()
+            Picker("", selection: selection) {
+                ForEach(options, id: \.tag) { option in
+                    Text(option.label).tag(option.tag)
+                }
+            }
+            .frame(width: 150)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+    }
+
+    private func compactActionButton(_ title: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundColor(.primary)
+                .padding(.horizontal, 11)
+                .frame(height: 24)
+                .background(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .fill(controlSurface)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .stroke(groupHairline, lineWidth: 0.75)
+                )
+        }
+        .buttonStyle(.plain)
+    }
+
+    // MARK: - Disk Panels (Apps + Export/Import)
+
+    private func exportSettingsToDisk() {
+        guard let data = settings.exportSettingsJSON() else {
+            uiState.flashStatus("Unable to serialize preferences")
+            return
+        }
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.json]
+        panel.nameFieldStringValue = "WindowSwitcher-Settings.json"
+        panel.prompt = "Export"
+        if panel.runModal() == .OK, let url = panel.url {
+            do {
+                try data.write(to: url)
+                uiState.flashStatus("Exported settings to \(url.lastPathComponent)")
+            } catch {
+                uiState.flashStatus("Export failed: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    private func importSettingsFromDisk() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.json]
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Import"
+        if panel.runModal() == .OK, let url = panel.url,
+           let data = try? Data(contentsOf: url),
+           settings.importSettingsJSON(data) {
+            uiState.flashStatus("Imported settings from \(url.lastPathComponent)")
+        }
+    }
 
     private func chooseApplicationFromDisk() {
         let panel = NSOpenPanel()
@@ -2037,9 +2179,9 @@ private struct SquircleBadge: View {
     let color: Color
     var isInvertedOnBlueSelection: Bool = false
     var showSelectionRim: Bool = false
-    var size: CGFloat = 21
-    var cornerRadius: CGFloat = 5.5
-    var symbolSize: CGFloat = 11
+    var size: CGFloat = 20
+    var cornerRadius: CGFloat = 5
+    var symbolSize: CGFloat = 10.5
 
     var body: some View {
         ZStack {
@@ -2059,9 +2201,9 @@ private struct SquircleBadge: View {
             RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                 .strokeBorder(
                     showSelectionRim
-                        ? Color.white.opacity(0.80)
+                        ? Color.white.opacity(0.75)
                         : Color.white.opacity(0.22),
-                    lineWidth: showSelectionRim ? 1.25 : 0.6
+                    lineWidth: showSelectionRim ? 1.15 : 0.6
                 )
 
             Image(systemName: symbol)
@@ -2069,7 +2211,7 @@ private struct SquircleBadge: View {
                 .foregroundColor(isInvertedOnBlueSelection ? color : .white)
         }
         .frame(width: size, height: size)
-        .shadow(color: Color.black.opacity(0.10), radius: 1, y: 0.5)
+        .shadow(color: Color.black.opacity(0.08), radius: 0.8, y: 0.4)
     }
 }
 
@@ -2109,9 +2251,7 @@ private struct ShortcutRecorderField: View {
                         .foregroundColor(.primary)
                         .frame(maxWidth: .infinity, alignment: .center)
 
-                    Button(action: {
-                        keyCombination = .empty
-                    }) {
+                    Button(action: { keyCombination = .empty }) {
                         Image(systemName: "xmark.circle.fill")
                             .font(.system(size: 10.5))
                             .foregroundColor(.secondary.opacity(0.6))
@@ -2131,7 +2271,7 @@ private struct ShortcutRecorderField: View {
                     .stroke(
                         isRecordingThis
                             ? Color(red: 0.039, green: 0.518, blue: 1.0).opacity(0.85)
-                            : Color.primary.opacity(0.12),
+                            : Color.primary.opacity(0.10),
                         lineWidth: isRecordingThis ? 1.2 : 0.75
                     )
             )

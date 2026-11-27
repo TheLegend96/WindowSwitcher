@@ -19,6 +19,7 @@ public struct GitHubRelease: Codable {
     public let body: String?
     public let htmlUrl: String
     public let publishedAt: String?
+    public let prerelease: Bool?
     public let assets: [GitHubAsset]
 
     enum CodingKeys: String, CodingKey {
@@ -27,6 +28,7 @@ public struct GitHubRelease: Codable {
         case body
         case htmlUrl = "html_url"
         case publishedAt = "published_at"
+        case prerelease
         case assets
     }
 }
@@ -75,22 +77,27 @@ public class UpdateManager: NSObject, ObservableObject, URLSessionDownloadDelega
         isChecking = true
         status = .checking
 
-        let urlString = "https://api.github.com/repos/\(repoOwner)/\(repoName)/releases/latest"
-        guard let url = URL(string: urlString) else {
-            status = .error(message: "Invalid repository URL")
-            isChecking = false
-            return
-        }
-
-        var request = URLRequest(url: url)
-        request.setValue("application/vnd.github.v3+json", forHTTPHeaderField: "Accept")
-        request.setValue("WindowSwitcher-App", forHTTPHeaderField: "User-Agent")
-        request.timeoutInterval = 15
-
         Task {
+            let includeBetas = await MainActor.run { SettingsManager.shared.includeBetaReleases }
+            let urlString = includeBetas
+                ? "https://api.github.com/repos/\(repoOwner)/\(repoName)/releases?per_page=5"
+                : "https://api.github.com/repos/\(repoOwner)/\(repoName)/releases/latest"
+
+            guard let url = URL(string: urlString) else {
+                await MainActor.run {
+                    self.status = .error(message: "Invalid repository URL")
+                    self.isChecking = false
+                }
+                return
+            }
+
+            var request = URLRequest(url: url)
+            request.setValue("application/vnd.github.v3+json", forHTTPHeaderField: "Accept")
+            request.setValue("WindowSwitcher-App", forHTTPHeaderField: "User-Agent")
+            request.timeoutInterval = 15
+
             do {
                 let (data, response) = try await URLSession.shared.data(for: request)
-                // Brief pause so the user perceives a genuine check rather than a 0ms glitch
                 try? await Task.sleep(nanoseconds: 500_000_000)
 
                 guard let httpResponse = response as? HTTPURLResponse else {
@@ -98,7 +105,6 @@ public class UpdateManager: NSObject, ObservableObject, URLSessionDownloadDelega
                 }
 
                 if httpResponse.statusCode == 404 {
-                    // No releases published yet on repository
                     await MainActor.run {
                         self.isChecking = false
                         self.lastCheckDate = Date()
@@ -120,7 +126,24 @@ public class UpdateManager: NSObject, ObservableObject, URLSessionDownloadDelega
                     return
                 }
 
-                let release = try JSONDecoder().decode(GitHubRelease.self, from: data)
+                let decodedRelease: GitHubRelease?
+                if includeBetas {
+                    let releases = try JSONDecoder().decode([GitHubRelease].self, from: data)
+                    decodedRelease = releases.first
+                } else {
+                    decodedRelease = try JSONDecoder().decode(GitHubRelease.self, from: data)
+                }
+
+                guard let release = decodedRelease else {
+                    await MainActor.run {
+                        self.isChecking = false
+                        self.lastCheckDate = Date()
+                        self.status = .upToDate(version: self.currentVersion)
+                        if userInitiated { self.showUpdateSheet = true }
+                    }
+                    return
+                }
+
                 let latestTag = release.tagName.trimmingCharacters(in: CharacterSet(charactersIn: "vV "))
                 let hasNewer = self.isVersion(latestTag, newerThan: self.currentVersion)
 

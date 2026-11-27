@@ -404,12 +404,12 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
 
         if settingsWindow == nil {
             let window = NSWindow(
-                contentRect: NSRect(x: 0, y: 0, width: 860, height: 620),
+                contentRect: NSRect(x: 0, y: 0, width: 840, height: 620),
                 styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
                 backing: .buffered,
                 defer: false
             )
-            window.minSize = NSSize(width: 820, height: 580)
+            window.minSize = NSSize(width: 780, height: 560)
             window.center()
             window.title = "Window Switcher Preferences"
             window.titlebarAppearsTransparent = true

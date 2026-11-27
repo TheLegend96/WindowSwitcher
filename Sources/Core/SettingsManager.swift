@@ -231,6 +231,18 @@ public class SettingsManager: ObservableObject {
     @Published public var crashReportPolicy: String {
         didSet { defaults.set(crashReportPolicy, forKey: "crashReportPolicy") }
     }
+    @Published public var hapticFeedbackOnSwitch: Bool {
+        didSet { defaults.set(hapticFeedbackOnSwitch, forKey: "hapticFeedbackOnSwitch") }
+    }
+    @Published public var soundOnSwitch: String {
+        didSet { defaults.set(soundOnSwitch, forKey: "soundOnSwitch") }
+    }
+    @Published public var includeBetaReleases: Bool {
+        didSet { defaults.set(includeBetaReleases, forKey: "includeBetaReleases") }
+    }
+    @Published public var showDetailsInSettings: Bool {
+        didSet { defaults.set(showDetailsInSettings, forKey: "showDetailsInSettings") }
+    }
 
     // MARK: - Exceptions
     @Published public var exceptionsList: [AppException] {
@@ -363,6 +375,10 @@ public class SettingsManager: ObservableObject {
         self.language = defaults.string(forKey: "language") ?? "System Default"
         self.updatePolicy = defaults.string(forKey: "updatePolicy") ?? "Check for updates periodically"
         self.crashReportPolicy = defaults.string(forKey: "crashReportPolicy") ?? "Ask whether to send crash reports"
+        self.hapticFeedbackOnSwitch = defaults.object(forKey: "hapticFeedbackOnSwitch") == nil ? false : defaults.bool(forKey: "hapticFeedbackOnSwitch")
+        self.soundOnSwitch = defaults.string(forKey: "soundOnSwitch") ?? "Off"
+        self.includeBetaReleases = defaults.object(forKey: "includeBetaReleases") == nil ? false : defaults.bool(forKey: "includeBetaReleases")
+        self.showDetailsInSettings = defaults.object(forKey: "showDetailsInSettings") == nil ? true : defaults.bool(forKey: "showDetailsInSettings")
 
         // Canvas & Styling defaults
         self.customAccentColorHex = defaults.string(forKey: "customAccentColorHex") ?? "#007AFF"
@@ -463,6 +479,10 @@ public class SettingsManager: ObservableObject {
         language = "System Default"
         updatePolicy = "Check for updates periodically"
         crashReportPolicy = "Ask whether to send crash reports"
+        hapticFeedbackOnSwitch = false
+        soundOnSwitch = "Off"
+        includeBetaReleases = false
+        showDetailsInSettings = true
 
         customAccentColorHex = "#007AFF"
         glassOpacity = 0.35
@@ -505,6 +525,144 @@ public class SettingsManager: ObservableObject {
 
     public func removeException(appName: String) {
         exceptionsList.removeAll { $0.name == appName || $0.bundleId == appName }
+    }
+
+    // MARK: - Feedback (Haptic + Sound)
+
+    public func triggerSwitchFeedback(isCommit: Bool = false) {
+        if hapticFeedbackOnSwitch {
+            NSHapticFeedbackManager.defaultPerformer.perform(
+                isCommit ? .generic : .alignment,
+                performanceTime: .now
+            )
+        }
+        if soundOnSwitch != "Off" {
+            let soundName = NSSound.Name(soundOnSwitch)
+            if let sound = NSSound(named: soundName) {
+                sound.volume = isCommit ? 0.35 : 0.22
+                sound.play()
+            }
+        }
+    }
+
+    // MARK: - Settings Backup Export / Import
+
+    public struct SettingsBackup: Codable {
+        public var switcherStyle: String
+        public var cardSize: String
+        public var themeMode: String
+        public var afterRelease: String
+        public var previewSelectedWindow: Bool
+        public var screenPlacement: String
+        public var animationsEnabled: Bool
+        public var primaryShortcut: String
+        public var appsFilter: String
+        public var spacesFilter: String
+        public var screensFilter: String
+        public var showMinimizedWindows: Bool
+        public var showHiddenWindows: Bool
+        public var showFullscreenWindows: Bool
+        public var showAppsWithNoWindows: Bool
+        public var customAccentColorHex: String
+        public var hudCornerRadius: Double
+        public var borderWidth: Double
+        public var shadowDepth: String
+        public var showWindowBadges: Bool
+        public var autoOpenEditor: Bool
+        public var playShutterSound: Bool
+        public var enableSmartDistance: Bool
+        public var gridAuditUnit: Int
+        public var startAtLogin: Bool
+        public var showMenubarIcon: Bool
+        public var captureInBackground: Bool
+        public var updatePolicy: String
+        public var hapticFeedbackOnSwitch: Bool
+        public var soundOnSwitch: String
+        public var includeBetaReleases: Bool
+        public var showDetailsInSettings: Bool
+        public var exceptionsList: [AppException]
+    }
+
+    public func exportSettingsJSON() -> Data? {
+        let backup = SettingsBackup(
+            switcherStyle: switcherStyle.rawValue,
+            cardSize: cardSize.rawValue,
+            themeMode: themeMode.rawValue,
+            afterRelease: afterRelease,
+            previewSelectedWindow: previewSelectedWindow,
+            screenPlacement: screenPlacement.rawValue,
+            animationsEnabled: animationsEnabled,
+            primaryShortcut: primaryShortcut.rawValue,
+            appsFilter: appsFilter,
+            spacesFilter: spacesFilter,
+            screensFilter: screensFilter,
+            showMinimizedWindows: showMinimizedWindows,
+            showHiddenWindows: showHiddenWindows,
+            showFullscreenWindows: showFullscreenWindows,
+            showAppsWithNoWindows: showAppsWithNoWindows,
+            customAccentColorHex: customAccentColorHex,
+            hudCornerRadius: hudCornerRadius,
+            borderWidth: borderWidth,
+            shadowDepth: shadowDepth,
+            showWindowBadges: showWindowBadges,
+            autoOpenEditor: autoOpenEditor,
+            playShutterSound: playShutterSound,
+            enableSmartDistance: enableSmartDistance,
+            gridAuditUnit: gridAuditUnit,
+            startAtLogin: startAtLogin,
+            showMenubarIcon: showMenubarIcon,
+            captureInBackground: captureInBackground,
+            updatePolicy: updatePolicy,
+            hapticFeedbackOnSwitch: hapticFeedbackOnSwitch,
+            soundOnSwitch: soundOnSwitch,
+            includeBetaReleases: includeBetaReleases,
+            showDetailsInSettings: showDetailsInSettings,
+            exceptionsList: exceptionsList
+        )
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        return try? encoder.encode(backup)
+    }
+
+    @discardableResult
+    public func importSettingsJSON(_ data: Data) -> Bool {
+        guard let backup = try? JSONDecoder().decode(SettingsBackup.self, from: data) else {
+            return false
+        }
+        if let style = SwitcherStyle(rawValue: backup.switcherStyle) { switcherStyle = style }
+        if let size = CardSize(rawValue: backup.cardSize) { cardSize = size }
+        if let theme = ThemeMode(rawValue: backup.themeMode) { themeMode = theme }
+        afterRelease = backup.afterRelease
+        previewSelectedWindow = backup.previewSelectedWindow
+        if let placement = ScreenPlacement(rawValue: backup.screenPlacement) { screenPlacement = placement }
+        animationsEnabled = backup.animationsEnabled
+        if let shortcut = ShortcutTrigger(rawValue: backup.primaryShortcut) { primaryShortcut = shortcut }
+        appsFilter = backup.appsFilter
+        spacesFilter = backup.spacesFilter
+        screensFilter = backup.screensFilter
+        showMinimizedWindows = backup.showMinimizedWindows
+        showHiddenWindows = backup.showHiddenWindows
+        showFullscreenWindows = backup.showFullscreenWindows
+        showAppsWithNoWindows = backup.showAppsWithNoWindows
+        customAccentColorHex = backup.customAccentColorHex
+        hudCornerRadius = backup.hudCornerRadius
+        borderWidth = backup.borderWidth
+        shadowDepth = backup.shadowDepth
+        showWindowBadges = backup.showWindowBadges
+        autoOpenEditor = backup.autoOpenEditor
+        playShutterSound = backup.playShutterSound
+        enableSmartDistance = backup.enableSmartDistance
+        gridAuditUnit = backup.gridAuditUnit
+        startAtLogin = backup.startAtLogin
+        showMenubarIcon = backup.showMenubarIcon
+        captureInBackground = backup.captureInBackground
+        updatePolicy = backup.updatePolicy
+        hapticFeedbackOnSwitch = backup.hapticFeedbackOnSwitch
+        soundOnSwitch = backup.soundOnSwitch
+        includeBetaReleases = backup.includeBetaReleases
+        showDetailsInSettings = backup.showDetailsInSettings
+        exceptionsList = backup.exceptionsList
+        return true
     }
 }
 
