@@ -59,6 +59,8 @@ public struct WindowCardView: View {
                 titlesRowView
             case .icons:
                 commandTabIconView
+            case .cards:
+                compactCardView
             case .thumbnails:
                 cardBodyView
             }
@@ -260,7 +262,82 @@ public struct WindowCardView: View {
         .contentShape(Rectangle())
     }
 
-    // MARK: - 3. Live Preview Thumbnail Card View
+    // MARK: - 3. Bento Compact Card View (App Icon + Crisp Title + Subtitle)
+    private var compactCardView: some View {
+        let titleInk: Color = isLightHUD ? Color.black.opacity(0.92) : .white
+        let subInk: Color = isLightHUD ? Color.black.opacity(0.58) : Color.white.opacity(0.68)
+        let cardFill: Color = isSelected
+            ? settings.accentColor.opacity(isLightHUD ? 0.16 : 0.28)
+            : (window.isHovered ? (isLightHUD ? Color.black.opacity(0.05) : Color.white.opacity(0.09)) : (isLightHUD ? Color.white.opacity(0.50) : Color.white.opacity(0.05)))
+        let borderInk: Color = isSelected
+            ? settings.accentColor
+            : (isLightHUD ? Color.black.opacity(0.10) : Color.white.opacity(0.10))
+
+        return HStack(spacing: 12) {
+            if let icon = window.appIcon {
+                Image(nsImage: icon)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(width: 40, height: 40)
+                    .shadow(color: Color.black.opacity(0.24), radius: 4, y: 2)
+            } else {
+                Image(systemName: "macwindow")
+                    .font(.system(size: 24))
+                    .foregroundColor(subInk)
+                    .frame(width: 40, height: 40)
+            }
+
+            VStack(alignment: .leading, spacing: 2.5) {
+                Text(window.windowTitle.isEmpty ? window.appName : window.windowTitle)
+                    .font(.system(size: 12.5, weight: .semibold))
+                    .foregroundColor(titleInk)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+
+                HStack(spacing: 4) {
+                    Text(window.appName)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(subInk)
+                        .lineLimit(1)
+
+                    if window.isHidden || window.isMinimized {
+                        Image(systemName: "eye.slash")
+                            .font(.system(size: 9.5, weight: .medium))
+                            .foregroundColor(subInk.opacity(0.85))
+                    }
+                }
+            }
+
+            Spacer(minLength: 2)
+
+            if window.isHovered {
+                Button(action: onClose) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 8.5, weight: .bold))
+                        .foregroundColor(.white.opacity(0.92))
+                        .frame(width: 17, height: 17)
+                        .background(Color.black.opacity(0.45))
+                        .clipShape(Circle())
+                }
+                .buttonStyle(.plain)
+                .help("Close window (W)")
+            }
+        }
+        .padding(.horizontal, 12)
+        .frame(width: 226, height: 64)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(cardFill)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(borderInk, lineWidth: isSelected ? 1.6 : 0.75)
+        )
+        .shadow(color: isSelected ? settings.accentColor.opacity(0.26) : .clear, radius: 6, y: 2)
+        .contentShape(Rectangle())
+    }
+
+    // MARK: - 4. Live Preview Thumbnail Card View
     private var cardBodyView: some View {
         let size = settings.cardSize
 

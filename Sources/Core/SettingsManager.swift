@@ -5,7 +5,8 @@ import ServiceManagement
 public enum SwitcherStyle: String, CaseIterable, Identifiable {
     case thumbnails = "Thumbnails"
     case icons = "App Icons"
-    case titles = "Titles"
+    case titles = "Window Titles"
+    case cards = "Compact Cards"
 
     public var id: String { rawValue }
 }
@@ -287,7 +288,11 @@ public class SettingsManager: ObservableObject {
 
     private init() {
         let styleStr = defaults.string(forKey: "switcherStyle") ?? SwitcherStyle.thumbnails.rawValue
-        self.switcherStyle = SwitcherStyle(rawValue: styleStr) ?? .thumbnails
+        if styleStr == "Titles" {
+            self.switcherStyle = .titles
+        } else {
+            self.switcherStyle = SwitcherStyle(rawValue: styleStr) ?? .thumbnails
+        }
 
         let sizeStr = defaults.string(forKey: "cardSize") ?? CardSize.medium.rawValue
         self.cardSize = CardSize(rawValue: sizeStr) ?? .medium

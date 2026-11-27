@@ -160,7 +160,13 @@ public class SwitcherState: ObservableObject {
             return
         }
         let count = list.count
-        let perRow = SettingsManager.shared.switcherStyle == .icons ? max(1, count <= 9 ? count : (count + 1) / 2) : (count <= 5 ? count : (count + 1) / 2)
+        let perRow: Int
+        switch SettingsManager.shared.switcherStyle {
+        case .titles: perRow = 1
+        case .icons: perRow = max(1, count <= 9 ? count : (count + 1) / 2)
+        case .cards: perRow = count <= 2 ? count : (count <= 8 ? 2 : 3)
+        case .thumbnails: perRow = count <= 5 ? count : (count + 1) / 2
+        }
         if selectedIndex + perRow < count {
             selectedIndex += perRow
         }
@@ -174,7 +180,13 @@ public class SwitcherState: ObservableObject {
             return
         }
         let count = list.count
-        let perRow = SettingsManager.shared.switcherStyle == .icons ? max(1, count <= 9 ? count : (count + 1) / 2) : (count <= 5 ? count : (count + 1) / 2)
+        let perRow: Int
+        switch SettingsManager.shared.switcherStyle {
+        case .titles: perRow = 1
+        case .icons: perRow = max(1, count <= 9 ? count : (count + 1) / 2)
+        case .cards: perRow = count <= 2 ? count : (count <= 8 ? 2 : 3)
+        case .thumbnails: perRow = count <= 5 ? count : (count + 1) / 2
+        }
         if selectedIndex - perRow >= 0 {
             selectedIndex -= perRow
         }

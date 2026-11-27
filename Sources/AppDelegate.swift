@@ -171,6 +171,11 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.showSampleSwitcherForTesting(style: .titles)
             }
         }
+        DistributedNotificationCenter.default().addObserver(forName: NSNotification.Name("com.custom.windowswitcher.testSwitcherCards"), object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor in
+                self?.showSampleSwitcherForTesting(style: .cards)
+            }
+        }
     }
 
     private func showSampleSwitcherForTesting(style: SwitcherStyle) {
@@ -305,6 +310,12 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
             gridW = 500 + 16
             gridH = CGFloat(rows) * 31 + CGFloat(max(0, rows - 1)) * 2 + 16 + searchExtra + (SwitcherState.shared.searchText.isEmpty ? 0 : 6)
 
+        case .cards:
+            let cols = count <= 2 ? max(1, count) : (count <= 8 ? 2 : 3)
+            let rows = max(1, Int(ceil(Double(count) / Double(cols))))
+            gridW = CGFloat(cols) * 226 + CGFloat(max(0, cols - 1)) * 10 + 36
+            gridH = CGFloat(rows) * 64 + CGFloat(max(0, rows - 1)) * 10 + 36 + searchExtra
+
         case .icons:
             let stepW = cardSize.iconSlotWidth + 10
             let limit = max(5, min(10, Int(1120.0 / stepW)))
@@ -393,11 +404,12 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
 
         if settingsWindow == nil {
             let window = NSWindow(
-                contentRect: NSRect(x: 0, y: 0, width: 820, height: 600),
-                styleMask: [.titled, .closable, .miniaturizable, .fullSizeContentView],
+                contentRect: NSRect(x: 0, y: 0, width: 860, height: 620),
+                styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
                 backing: .buffered,
                 defer: false
             )
+            window.minSize = NSSize(width: 820, height: 580)
             window.center()
             window.title = "Window Switcher Preferences"
             window.titlebarAppearsTransparent = true

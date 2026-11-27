@@ -38,17 +38,32 @@ public struct SwitcherOverlayView: View {
 
     // Native Command+Tab App Icons prefers a single horizontal strip (wrapping cleanly only when exceeding row capacity)
     private var maxItemsPerRow: Int {
-        if settings.switcherStyle == .icons {
+        switch settings.switcherStyle {
+        case .icons:
             let maxRowWidth: CGFloat = 1120
             let stepW = settings.cardSize.iconSlotWidth + 10
             return max(5, min(10, Int(maxRowWidth / stepW)))
+        case .cards:
+            return activeWindows.count <= 2 ? max(1, activeWindows.count) : (activeWindows.count <= 8 ? 2 : 3)
+        default:
+            return 5
         }
-        return 5
     }
 
     private var rowsOfWindows: [[(index: Int, window: SwitcherWindow)]] {
         let indexed = Array(activeWindows.enumerated()).map { ($0.offset, $0.element) }
         guard !indexed.isEmpty else { return [] }
+        if settings.switcherStyle == .cards {
+            let cols = max(1, maxItemsPerRow)
+            var result: [[(index: Int, window: SwitcherWindow)]] = []
+            var idx = 0
+            while idx < indexed.count {
+                let end = min(idx + cols, indexed.count)
+                result.append(Array(indexed[idx..<end]))
+                idx = end
+            }
+            return result
+        }
         let limit = maxItemsPerRow
         if indexed.count <= limit {
             return [indexed]
@@ -67,6 +82,8 @@ public struct SwitcherOverlayView: View {
         case .titles:
             // Compact macOS list container curvature
             return min(CGFloat(settings.hudCornerRadius), 18)
+        case .cards:
+            return min(CGFloat(settings.hudCornerRadius), 22)
         case .thumbnails:
             return CGFloat(settings.hudCornerRadius)
         }
@@ -150,6 +167,26 @@ public struct SwitcherOverlayView: View {
             } else if settings.switcherStyle == .icons {
                 // Native macOS Command-Tab Horizontal Capsule Strip with App Names Below
                 VStack(spacing: 12) {
+                    ForEach(0..<rowsOfWindows.count, id: \.self) { rowIdx in
+                        HStack(spacing: 10) {
+                            ForEach(rowsOfWindows[rowIdx], id: \.window.id) { item in
+                                WindowCardView(
+                                    window: item.window,
+                                    isSelected: item.index == state.selectedIndex,
+                                    onClose: {
+                                        state.closeWindow(at: item.index)
+                                    },
+                                    onSelect: {
+                                        state.commitSelection(for: item.window)
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+            } else if settings.switcherStyle == .cards {
+                // Multi-column macOS Compact Cards Bento Grid
+                VStack(spacing: 10) {
                     ForEach(0..<rowsOfWindows.count, id: \.self) { rowIdx in
                         HStack(spacing: 10) {
                             ForEach(rowsOfWindows[rowIdx], id: \.window.id) { item in
