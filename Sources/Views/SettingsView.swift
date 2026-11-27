@@ -310,33 +310,34 @@ public struct SettingsView: View {
 
     private var cardGlowShadow: Color {
         colorScheme == .dark
-            ? Color.black.opacity(0.35)
-            : Color.black.opacity(0.055)
+            ? Color.black.opacity(0.16)
+            : Color.black.opacity(0.025)
     }
 
     private var innerDividerColor: Color {
         colorScheme == .dark
             ? Color.white.opacity(0.08)
-            : Color.black.opacity(0.06)
+            : Color.black.opacity(0.065)
     }
 
     public init() {}
 
     public var body: some View {
-        HStack(spacing: 0) {
-            sidebarView
-                .frame(width: 218)
-
-            Rectangle()
-                .fill(colorScheme == .dark ? Color.white.opacity(0.09) : Color.black.opacity(0.07))
-                .frame(width: 1)
+        ZStack(alignment: .leading) {
+            // Single continuous window surface (zero middle gap or white seam)
+            DetailSheetBackdrop()
                 .ignoresSafeArea(.all)
 
-            ZStack(alignment: .top) {
-                DetailSheetBackdrop()
-                    .ignoresSafeArea(.all)
+            sheetTintOverlay
+                .ignoresSafeArea(.all)
 
-                sheetTintOverlay
+            HStack(spacing: 0) {
+                sidebarView
+                    .frame(width: 214)
+
+                Rectangle()
+                    .fill(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.08))
+                    .frame(width: 1)
                     .ignoresSafeArea(.all)
 
                 VStack(spacing: 0) {
@@ -345,8 +346,8 @@ public struct SettingsView: View {
                     detailContent
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(minWidth: 780, minHeight: 560)
         .frame(width: 850, height: 620)
@@ -411,7 +412,6 @@ public struct SettingsView: View {
                     interactive: true,
                     fallbackFill: colorScheme == .dark ? Color.white.opacity(0.09) : Color.white.opacity(0.55)
                 )
-                .shadow(color: Color.black.opacity(colorScheme == .dark ? 0.25 : 0.05), radius: 6, y: 2)
                 .padding(.horizontal, 12)
                 .padding(.bottom, 12)
 
@@ -500,26 +500,23 @@ public struct SettingsView: View {
                 }
             }
             .padding(.horizontal, 9)
-            .frame(height: 30)
+            .frame(height: 29)
             .background(
                 Group {
                     if isSelected {
-                        RoundedRectangle(cornerRadius: 9, style: .continuous)
-                            .fill(Color.clear)
-                            .applyLiquidGlass(
-                                in: RoundedRectangle(cornerRadius: 9, style: .continuous),
-                                tint: accentBlue.opacity(0.16),
-                                interactive: true,
-                                fallbackFill: colorScheme == .dark ? Color.white.opacity(0.16) : Color.white.opacity(0.75)
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .fill(colorScheme == .dark ? Color.white.opacity(0.11) : Color.black.opacity(0.065))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                    .strokeBorder(Color.primary.opacity(0.06), lineWidth: 0.6)
                             )
-                            .shadow(color: Color.black.opacity(colorScheme == .dark ? 0.22 : 0.05), radius: 5, y: 1.5)
                     } else if isHovered {
-                        RoundedRectangle(cornerRadius: 9, style: .continuous)
-                            .fill(Color.primary.opacity(0.05))
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .fill(Color.primary.opacity(0.04))
                     }
                 }
             )
-            .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         }
         .buttonStyle(.plain)
         .onHover { hovering in
@@ -546,19 +543,18 @@ public struct SettingsView: View {
                     HStack(spacing: 5) {
                         Image(systemName: "camera.viewfinder")
                             .font(.system(size: 11, weight: .semibold))
+                            .foregroundColor(accentBlue)
                         Text("Take Screenshot")
                             .font(.system(size: 12, weight: .medium))
+                            .foregroundColor(.primary)
                     }
-                    .foregroundColor(.primary)
                     .padding(.horizontal, 12)
-                    .frame(height: 28)
+                    .frame(height: 27)
                     .applyLiquidGlass(
                         in: Capsule(),
-                        tint: accentBlue.opacity(0.22),
                         interactive: true,
-                        fallbackFill: Color.white.opacity(0.85)
+                        fallbackFill: glowingCardFill
                     )
-                    .shadow(color: cardGlowShadow, radius: 6, y: 2)
                 }
                 .buttonStyle(.plain)
             } else if uiState.selectedTab == .apps {
@@ -571,9 +567,8 @@ public struct SettingsView: View {
                     }
                     .foregroundColor(.primary)
                     .padding(.horizontal, 12)
-                    .frame(height: 28)
+                    .frame(height: 27)
                     .applyLiquidGlass(in: Capsule(), interactive: true, fallbackFill: glowingCardFill)
-                    .shadow(color: cardGlowShadow, radius: 6, y: 2)
                 }
                 .buttonStyle(.plain)
             }
@@ -816,13 +811,11 @@ public struct SettingsView: View {
                                 subtitle: "Highlight measurements that fall off the chosen layout rhythm in amber."
                             )
                             Spacer(minLength: 8)
-                            Picker("", selection: $settings.gridAuditUnit) {
-                                Text("4 px").tag(4)
-                                Text("8 px").tag(8)
-                                Text("Off").tag(1)
-                            }
-                            .pickerStyle(.segmented)
-                            .frame(width: 168)
+                            CleanSegmentedPicker(
+                                selection: $settings.gridAuditUnit,
+                                options: [("4 px", 4), ("8 px", 8), ("Off", 1)]
+                            )
+                            .frame(width: 174)
                         }
                         .padding(.horizontal, 16)
                         .padding(.vertical, 11)
@@ -967,12 +960,11 @@ public struct SettingsView: View {
             }
         }
         .frame(height: 124)
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .strokeBorder(cardBorderGradient, lineWidth: 0.8)
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(innerDividerColor, lineWidth: 0.75)
         )
-        .shadow(color: cardGlowShadow, radius: 10, y: 3)
     }
 
     private func keycapRow(title: String, subtitle: String, key: String) -> some View {
@@ -1021,12 +1013,11 @@ public struct SettingsView: View {
                                 subtitle: "Immediately raise the selected window or hold the HUD open."
                             )
                             Spacer()
-                            Picker("", selection: $settings.afterRelease) {
-                                Text("Focus Window").tag("Focus")
-                                Text("Keep Open").tag("Hold")
-                            }
-                            .pickerStyle(.segmented)
-                            .frame(width: 204)
+                            CleanSegmentedPicker(
+                                selection: $settings.afterRelease,
+                                options: [("Focus Window", "Focus"), ("Keep Open", "Hold")]
+                            )
+                            .frame(width: 196)
                         }
                         .padding(.horizontal, 16)
                         .padding(.vertical, 11)
@@ -1157,17 +1148,15 @@ public struct SettingsView: View {
             .padding(14)
             .frame(maxWidth: .infinity, alignment: .leading)
             .applyLiquidGlass(
-                in: RoundedRectangle(cornerRadius: 14, style: .continuous),
-                tint: isSelected ? accent.opacity(0.14) : nil,
+                in: RoundedRectangle(cornerRadius: 12, style: .continuous),
                 interactive: true,
                 fallbackFill: glowingCardFill
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .strokeBorder(isSelected ? accent : Color.clear, lineWidth: 1.5)
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .strokeBorder(isSelected ? accent : innerDividerColor, lineWidth: isSelected ? 1.5 : 0.75)
             )
-            .shadow(color: cardGlowShadow, radius: 10, y: 3)
-            .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         }
         .buttonStyle(.plain)
     }
@@ -1221,13 +1210,11 @@ public struct SettingsView: View {
                         HStack {
                             rowLabel(title: "Tile size", subtitle: "Scale window previews, icon strips, and card tiles.")
                             Spacer()
-                            Picker("", selection: $settings.cardSize) {
-                                Text("Small").tag(CardSize.small)
-                                Text("Medium").tag(CardSize.medium)
-                                Text("Large").tag(CardSize.large)
-                            }
-                            .pickerStyle(.segmented)
-                            .frame(width: 204)
+                            CleanSegmentedPicker(
+                                selection: $settings.cardSize,
+                                options: [("Small", CardSize.small), ("Medium", CardSize.medium), ("Large", CardSize.large)]
+                            )
+                            .frame(width: 224)
                         }
                         .padding(.horizontal, 16)
                         .padding(.vertical, 11)
@@ -1237,13 +1224,11 @@ public struct SettingsView: View {
                         HStack {
                             rowLabel(title: "Color theme", subtitle: "Match macOS System appearance or lock Light / Dark glass.")
                             Spacer()
-                            Picker("", selection: $settings.themeMode) {
-                                Text("System").tag(ThemeMode.system)
-                                Text("Light").tag(ThemeMode.light)
-                                Text("Dark").tag(ThemeMode.dark)
-                            }
-                            .pickerStyle(.segmented)
-                            .frame(width: 204)
+                            CleanSegmentedPicker(
+                                selection: $settings.themeMode,
+                                options: [("System", ThemeMode.system), ("Light", ThemeMode.light), ("Dark", ThemeMode.dark)]
+                            )
+                            .frame(width: 224)
                         }
                         .padding(.horizontal, 16)
                         .padding(.vertical, 11)
@@ -1326,13 +1311,11 @@ public struct SettingsView: View {
                         HStack {
                             rowLabel(title: "Shadow elevation", subtitle: "Adjust HUD depth and shadow spread above open windows.")
                             Spacer()
-                            Picker("", selection: $settings.shadowDepth) {
-                                Text("Subtle").tag("Subtle Depth")
-                                Text("Balanced").tag("Apple HIG Balanced")
-                                Text("Floating").tag("Floating Deep")
-                            }
-                            .pickerStyle(.segmented)
-                            .frame(width: 204)
+                            CleanSegmentedPicker(
+                                selection: $settings.shadowDepth,
+                                options: [("Subtle", "Subtle Depth"), ("Balanced", "Apple HIG Balanced"), ("Floating", "Floating Deep")]
+                            )
+                            .frame(width: 228)
                         }
                         .padding(.horizontal, 16)
                         .padding(.vertical, 11)
@@ -1552,12 +1535,11 @@ public struct SettingsView: View {
             }
         }
         .frame(height: 152)
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .strokeBorder(cardBorderGradient, lineWidth: 0.8)
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(innerDividerColor, lineWidth: 0.75)
         )
-        .shadow(color: cardGlowShadow, radius: 10, y: 3)
     }
 
     private func styleSelectorTile(style: SwitcherStyle, title: String, symbol: String) -> some View {
@@ -1582,17 +1564,18 @@ public struct SettingsView: View {
             .frame(maxWidth: .infinity)
             .frame(height: 58)
             .applyLiquidGlass(
-                in: RoundedRectangle(cornerRadius: 12, style: .continuous),
-                tint: isSelected ? accent.opacity(0.14) : nil,
+                in: RoundedRectangle(cornerRadius: 11, style: .continuous),
                 interactive: true,
                 fallbackFill: glowingCardFill
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .strokeBorder(isSelected ? accent : (isHovered ? Color.primary.opacity(0.18) : Color.clear), lineWidth: isSelected ? 1.6 : 0.75)
+                RoundedRectangle(cornerRadius: 11, style: .continuous)
+                    .strokeBorder(
+                        isSelected ? accent : (isHovered ? Color.primary.opacity(0.18) : innerDividerColor),
+                        lineWidth: isSelected ? 1.6 : 0.75
+                    )
             )
-            .shadow(color: cardGlowShadow, radius: 8, y: 2)
-            .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
         }
         .buttonStyle(.plain)
         .onHover { hovering in
@@ -1618,8 +1601,9 @@ public struct SettingsView: View {
     // MARK: - 5. Apps & Rules Pane
 
     private var appsPane: some View {
-        HStack(alignment: .top, spacing: 14) {
-            glassCard {
+        glassCard {
+            HStack(spacing: 0) {
+                // Left Application List Column
                 VStack(spacing: 0) {
                     ScrollView(.vertical, showsIndicators: false) {
                         VStack(spacing: 2) {
@@ -1627,6 +1611,10 @@ public struct SettingsView: View {
                                 let isSelected = uiState.selectedExceptionId == app.bundleId
                                 Button(action: { uiState.selectedExceptionId = app.bundleId }) {
                                     HStack(spacing: 9) {
+                                        RoundedRectangle(cornerRadius: 1.5, style: .continuous)
+                                            .fill(isSelected ? Color.primary.opacity(0.65) : Color.clear)
+                                            .frame(width: 2.5, height: 14)
+
                                         NativeAppIconView(bundleId: app.bundleId, size: 22)
 
                                         VStack(alignment: .leading, spacing: 1) {
@@ -1643,27 +1631,18 @@ public struct SettingsView: View {
                                         }
                                         Spacer(minLength: 0)
                                     }
-                                    .padding(.horizontal, 9)
+                                    .padding(.horizontal, 8)
                                     .padding(.vertical, 6)
                                     .background(
-                                        Group {
-                                            if isSelected {
-                                                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                                    .applyLiquidGlass(
-                                                        in: RoundedRectangle(cornerRadius: 8, style: .continuous),
-                                                        tint: accentBlue.opacity(0.18),
-                                                        interactive: true,
-                                                        fallbackFill: Color.white.opacity(0.85)
-                                                    )
-                                            }
-                                        }
+                                        RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                            .fill(isSelected ? Color.primary.opacity(colorScheme == .dark ? 0.11 : 0.065) : Color.clear)
                                     )
-                                    .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                                    .contentShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
                                 }
                                 .buttonStyle(.plain)
                             }
                         }
-                        .padding(6)
+                        .padding(8)
                     }
 
                     rowDivider(leading: 0)
@@ -1693,15 +1672,18 @@ public struct SettingsView: View {
                     }
                     .padding(.horizontal, 4)
                 }
-            }
-            .frame(width: 204)
-            .frame(maxHeight: .infinity)
+                .frame(width: 204)
+                .frame(maxHeight: .infinity)
 
-            if let index = settings.exceptionsList.firstIndex(where: { $0.bundleId == uiState.selectedExceptionId }) {
-                let selectedApp = settings.exceptionsList[index]
+                Rectangle()
+                    .fill(innerDividerColor)
+                    .frame(width: 1)
 
-                VStack(alignment: .leading, spacing: 14) {
-                    glassCard {
+                // Right Integrated Rule Inspector Column
+                if let index = settings.exceptionsList.firstIndex(where: { $0.bundleId == uiState.selectedExceptionId }) {
+                    let selectedApp = settings.exceptionsList[index]
+
+                    VStack(alignment: .leading, spacing: 0) {
                         HStack(spacing: 12) {
                             NativeAppIconView(bundleId: selectedApp.bundleId, size: 38)
                             VStack(alignment: .leading, spacing: 2) {
@@ -1713,50 +1695,47 @@ public struct SettingsView: View {
                             }
                             Spacer()
                         }
-                        .padding(14)
-                    }
+                        .padding(16)
 
-                    glassCard {
-                        VStack(spacing: 0) {
-                            HStack {
-                                rowLabel(title: "Global shortcuts", subtitle: "Bypass Window Switcher triggers when this app is frontmost.")
-                                Spacer()
-                                Picker("", selection: Binding(
-                                    get: { settings.exceptionsList[index].ignoreShortcuts },
-                                    set: { settings.exceptionsList[index].ignoreShortcuts = $0 }
-                                )) {
-                                    Text("Pass-through").tag("When in focus")
-                                    Text("Active normally").tag("Never")
-                                }
-                                .frame(width: 168)
+                        rowDivider(leading: 0)
+
+                        HStack {
+                            rowLabel(title: "Global shortcuts", subtitle: "Bypass Window Switcher triggers when this app is frontmost.")
+                            Spacer()
+                            Picker("", selection: Binding(
+                                get: { settings.exceptionsList[index].ignoreShortcuts },
+                                set: { settings.exceptionsList[index].ignoreShortcuts = $0 }
+                            )) {
+                                Text("Pass-through").tag("When in focus")
+                                Text("Active normally").tag("Never")
                             }
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 11)
-
-                            rowDivider()
-
-                            HStack {
-                                rowLabel(title: "HUD visibility", subtitle: "Control whether this application appears inside the switcher.")
-                                Spacer()
-                                Picker("", selection: Binding(
-                                    get: { settings.exceptionsList[index].hideWindows },
-                                    set: { settings.exceptionsList[index].hideWindows = $0 }
-                                )) {
-                                    Text("Hide when empty").tag("When no open window")
-                                    Text("Always hide").tag("Always")
-                                    Text("Always show").tag("Never")
-                                }
-                                .frame(width: 168)
-                            }
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 11)
+                            .frame(width: 168)
                         }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 12)
+
+                        rowDivider(leading: 16)
+
+                        HStack {
+                            rowLabel(title: "HUD visibility", subtitle: "Control whether this application appears inside the switcher.")
+                            Spacer()
+                            Picker("", selection: Binding(
+                                get: { settings.exceptionsList[index].hideWindows },
+                                set: { settings.exceptionsList[index].hideWindows = $0 }
+                            )) {
+                                Text("Hide when empty").tag("When no open window")
+                                Text("Always hide").tag("Always")
+                                Text("Always show").tag("Never")
+                            }
+                            .frame(width: 168)
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 12)
+
+                        Spacer()
                     }
-                    Spacer()
-                }
-                .frame(maxWidth: .infinity)
-            } else {
-                glassCard {
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                } else {
                     VStack(spacing: 8) {
                         Image(systemName: "app.dashed")
                             .font(.system(size: 26, weight: .light))
@@ -2087,7 +2066,7 @@ public struct SettingsView: View {
             // Hero Header Block
             HStack(alignment: .center, spacing: 26) {
                 AppBrandingIcon(size: 84, cornerRadius: 20)
-                    .shadow(color: Color.black.opacity(colorScheme == .dark ? 0.45 : 0.16), radius: 14, y: 6)
+                    .shadow(color: Color.black.opacity(colorScheme == .dark ? 0.30 : 0.10), radius: 8, y: 3)
 
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Window Switcher")
@@ -2103,7 +2082,7 @@ public struct SettingsView: View {
                             updater.checkForUpdates(userInitiated: true)
                         }) {
                             HStack(spacing: 6) {
-                                Image(systemName: updater.isChecking ? "arrow.triangle.2.circlepath" : "arrow.triangle.2.circlepath")
+                                Image(systemName: "arrow.triangle.2.circlepath")
                                     .font(.system(size: 11.5, weight: .semibold))
                                     .foregroundColor(.secondary)
                                 Text(updater.isChecking ? "Checking…" : "Check for Updates")
@@ -2117,7 +2096,6 @@ public struct SettingsView: View {
                                 interactive: true,
                                 fallbackFill: glowingCardFill
                             )
-                            .shadow(color: cardGlowShadow, radius: 8, y: 2.5)
                         }
                         .buttonStyle(.plain)
 
@@ -2213,16 +2191,15 @@ public struct SettingsView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .frame(height: 94)
             .applyLiquidGlass(
-                in: RoundedRectangle(cornerRadius: 16, style: .continuous),
+                in: RoundedRectangle(cornerRadius: 14, style: .continuous),
                 interactive: true,
                 fallbackFill: glowingCardFill
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .strokeBorder(cardBorderGradient, lineWidth: isHovered ? 1.1 : 0.8)
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .strokeBorder(cardBorderGradient, lineWidth: isHovered ? 1.0 : 0.75)
             )
-            .shadow(color: cardGlowShadow.opacity(isHovered ? 1.5 : 1.0), radius: isHovered ? 14 : 10, y: isHovered ? 5 : 3)
-            .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         }
         .buttonStyle(.plain)
         .onHover { hovering in
@@ -2243,18 +2220,13 @@ public struct SettingsView: View {
         content()
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
                     .fill(glowingCardFill)
             )
-            .applyLiquidGlass(
-                in: RoundedRectangle(cornerRadius: 14, style: .continuous),
-                fallbackFill: glowingCardFill
-            )
             .overlay(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .strokeBorder(cardBorderGradient, lineWidth: 0.75)
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .strokeBorder(innerDividerColor, lineWidth: 0.75)
             )
-            .shadow(color: cardGlowShadow, radius: 10, y: 3)
     }
 
     private func rowDivider(leading: CGFloat = 16) -> some View {
@@ -2318,7 +2290,6 @@ public struct SettingsView: View {
                     interactive: true,
                     fallbackFill: glowingCardFill
                 )
-                .shadow(color: cardGlowShadow, radius: 5, y: 1.5)
         }
         .buttonStyle(.plain)
     }
@@ -2507,5 +2478,59 @@ private struct ShortcutRecorderField: View {
         .onDisappear {
             uiState.stopRecording()
         }
+    }
+}
+
+// MARK: - Precision Non-Overflowing Segmented Control
+
+private struct CleanSegmentedPicker<Value: Hashable>: View {
+    @Binding var selection: Value
+    let options: [(String, Value)]
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        HStack(spacing: 2) {
+            ForEach(Array(options.enumerated()), id: \.offset) { _, option in
+                let isSelected = selection == option.1
+                Button(action: {
+                    withAnimation(.easeOut(duration: 0.14)) {
+                        selection = option.1
+                    }
+                }) {
+                    Text(option.0)
+                        .font(.system(size: 11.5, weight: isSelected ? .semibold : .regular))
+                        .foregroundColor(isSelected ? .primary : .secondary)
+                        .lineLimit(1)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 23)
+                        .background(
+                            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                .fill(
+                                    isSelected
+                                        ? (colorScheme == .dark ? Color.white.opacity(0.18) : Color.white)
+                                        : Color.clear
+                                )
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                .strokeBorder(
+                                    isSelected ? Color.primary.opacity(0.08) : Color.clear,
+                                    lineWidth: 0.5
+                                )
+                        )
+                        .contentShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(2.5)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(colorScheme == .dark ? Color.white.opacity(0.07) : Color.black.opacity(0.055))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .strokeBorder(Color.primary.opacity(0.06), lineWidth: 0.5)
+        )
     }
 }
