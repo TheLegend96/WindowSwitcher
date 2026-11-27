@@ -1,15 +1,35 @@
 import AppKit
 import SwiftUI
 import CoreImage
+import UniformTypeIdentifiers
+import Vision
 
 // MARK: - Editor Observable State
 @MainActor
 public final class ScreenshotEditorState: ObservableObject {
-    @Published public var currentTool: AnnotationTool = .distance
+    public struct EditorSnapshot {
+        public var annotations: [CanvasAnnotation]
+        public var image: NSImage?
+        public var cutoutImage: NSImage?
+        public var pixelSize: CGSize
+        public var removeBG: Bool
+    }
+
+    @Published public var currentTool: AnnotationTool = .pointer
     @Published public var annotations: [CanvasAnnotation] = []
     @Published public var canUndo: Bool = false
     @Published public var canRedo: Bool = false
     @Published public var isPinned: Bool = false
+
+    // Backdrop, Frame & Subject Cutout
+    @Published public var backdropConfig: BackdropConfig = BackdropConfig()
+    @Published public var cutoutImage: NSImage? = nil
+    @Published public var isRemovingBackground: Bool = false
+    @Published public var isBackdropPopoverOpen: Bool = false
+    @Published public var isBackdropColorPopoverOpen: Bool = false
+    @Published public var pendingCropRect: CGRect? = nil
+    @Published public var gifFrames: [ImageBackdropCompositor.AnimatedGIFFrame] = []
+    @Published public var currentGifFrameIndex: Int = 0
 
     // Per-tool Persistent Style Defaults
     @Published public var arrowColor: NSColor = .white
@@ -26,6 +46,7 @@ public final class ScreenshotEditorState: ObservableObject {
     @Published public var rectCornerRadius: CGFloat = 0.0
     @Published public var rectShowSizeTag: Bool = false
 
+    @Published public var spotlightColor: NSColor = NSColor(red: 10/255, green: 132/255, blue: 255/255, alpha: 1.0)
     @Published public var rulerColor: NSColor = NSColor(red: 10/255, green: 132/255, blue: 255/255, alpha: 1.0)
     @Published public var pinColor: NSColor = NSColor(red: 255/255, green: 69/255, blue: 58/255, alpha: 1.0)
     @Published public var highlighterColor: NSColor = NSColor(red: 255/255, green: 159/255, blue: 10/255, alpha: 1.0)
@@ -43,19 +64,29 @@ public final class ScreenshotEditorState: ObservableObject {
     @Published public var selectedAnnotationIndex: Int? = nil
     @Published public var isColorPopoverOpen: Bool = false
     @Published public var isEditingInlineText: Bool = false
+    public let annotationColorPickerState = ColorPickerPopoverUIState()
+    public let backdropColorPickerState = ColorPickerPopoverUIState()
 
     public var image: NSImage?
     public var imageSize: CGSize = .zero      // Logical points (CSS px)
     public var pixelSize: CGSize = .zero      // Physical bitmap pixels
     public var hasEmbeddedShadow: Bool = false
 
-    private var undoHistory: [[CanvasAnnotation]] = []
-    private var redoHistory: [[CanvasAnnotation]] = []
+    public var activeSubjectImage: NSImage? {
+        if backdropConfig.removeSubjectBackground, let cut = cutoutImage {
+            return cut
+        }
+        return image
+    }
+
+    private var undoHistory: [EditorSnapshot] = []
+    private var redoHistory: [EditorSnapshot] = []
     private var propertyEditUndoToken: Date? = nil
 
     // Action hooks wired to Canvas & Window
     public var onRequestCopy: (() -> Void)?
     public var onRequestSave: (() -> Void)?
+    public var onRequestSaveGIF: (() -> Void)?
     public var onRequestTogglePin: (() -> Void)?
     public var onRequestZoomBy: ((CGFloat) -> Void)?
     public var onRequestZoomFit: (() -> Void)?
@@ -65,13 +96,24 @@ public final class ScreenshotEditorState: ObservableObject {
     public var onLivePropertyChanged: (() -> Void)?
     public var onOpenTextEditorAtIndex: ((Int) -> Void)?
     public var onCanvasMutated: (() -> Void)?
+    public var onBackdropChanged: (() -> Void)?
+    public var onRequestApplyCrop: (() -> Void)?
+    public var onRequestCancelCrop: (() -> Void)?
+    public var onRequestToggleBackgroundRemoval: (() -> Void)?
+    public var onRequestChooseBackdropPhoto: (() -> Void)?
+    public var onRequestChooseBackdropGIF: (() -> Void)?
+    public var onRequestGrabOCRText: (() -> Void)?
 
     public func selectTool(_ tool: AnnotationTool) {
         onCommitInlineText?()
+        if tool != .crop {
+            pendingCropRect = nil
+        }
         if let idx = selectedAnnotationIndex, idx < annotations.count, annotations[idx].tool != tool {
             selectedAnnotationIndex = nil
         }
         currentTool = tool
+        onCanvasMutated?()
     }
 
     public func resetHistory() {
@@ -82,12 +124,24 @@ public final class ScreenshotEditorState: ObservableObject {
         nextPinNumber = 1
         selectedAnnotationIndex = nil
         pinnedBgHexColor = nil
+        pendingCropRect = nil
+        cutoutImage = nil
+        isRemovingBackground = false
+        backdropConfig = BackdropConfig()
+        gifFrames = []
+        currentGifFrameIndex = 0
         panOffset = .zero
         zoomScale = 1.0
     }
 
     public func pushUndoSnapshot() {
-        undoHistory.append(annotations)
+        undoHistory.append(EditorSnapshot(
+            annotations: annotations,
+            image: image,
+            cutoutImage: cutoutImage,
+            pixelSize: pixelSize,
+            removeBG: backdropConfig.removeSubjectBackground
+        ))
         redoHistory.removeAll()
         canUndo = !undoHistory.isEmpty
         canRedo = false
@@ -140,24 +194,54 @@ public final class ScreenshotEditorState: ObservableObject {
 
     public func undo() {
         guard let prev = undoHistory.popLast() else { return }
-        redoHistory.append(annotations)
-        annotations = prev
+        redoHistory.append(EditorSnapshot(
+            annotations: annotations,
+            image: image,
+            cutoutImage: cutoutImage,
+            pixelSize: pixelSize,
+            removeBG: backdropConfig.removeSubjectBackground
+        ))
+        annotations = prev.annotations
+        if let img = prev.image {
+            image = img
+            imageSize = img.size
+        }
+        cutoutImage = prev.cutoutImage
+        pixelSize = prev.pixelSize
+        backdropConfig.removeSubjectBackground = prev.removeBG
+        pendingCropRect = nil
         selectedAnnotationIndex = nil
         canUndo = !undoHistory.isEmpty
         canRedo = !redoHistory.isEmpty
         recomputeNextPin()
+        onBackdropChanged?()
         onCanvasMutated?()
     }
 
     public func redo() {
         guard let next = redoHistory.popLast() else { return }
         let prevCount = annotations.count
-        undoHistory.append(annotations)
-        annotations = next
-        selectedAnnotationIndex = next.count > prevCount ? next.count - 1 : nil
+        undoHistory.append(EditorSnapshot(
+            annotations: annotations,
+            image: image,
+            cutoutImage: cutoutImage,
+            pixelSize: pixelSize,
+            removeBG: backdropConfig.removeSubjectBackground
+        ))
+        annotations = next.annotations
+        if let img = next.image {
+            image = img
+            imageSize = img.size
+        }
+        cutoutImage = next.cutoutImage
+        pixelSize = next.pixelSize
+        backdropConfig.removeSubjectBackground = next.removeBG
+        pendingCropRect = nil
+        selectedAnnotationIndex = next.annotations.count > prevCount ? next.annotations.count - 1 : nil
         canUndo = !undoHistory.isEmpty
         canRedo = !redoHistory.isEmpty
         recomputeNextPin()
+        onBackdropChanged?()
         onCanvasMutated?()
     }
 
@@ -240,6 +324,7 @@ public final class ScreenshotEditorState: ObservableObject {
         case .distance: return rulerColor
         case .numberedPin: return pinColor
         case .pencil: return highlighterColor
+        case .spotlight: return spotlightColor
         default: return rectColor
         }
     }
@@ -262,6 +347,7 @@ public final class ScreenshotEditorState: ObservableObject {
         case .distance: rulerColor = color
         case .numberedPin: pinColor = color
         case .pencil: highlighterColor = color
+        case .spotlight: spotlightColor = color
         default: break
         }
         if let idx = selectedAnnotationIndex, idx < annotations.count {
@@ -398,7 +484,7 @@ public class ScreenshotEditorWindowController: NSObject, NSWindowDelegate {
         let maxH = targetScreen.visibleFrame.height * 0.90
 
         let desiredW = min(max(image.size.width + 64, minW), maxW)
-        let desiredH = min(max(image.size.height + toolbarH + 64, minH), maxH)
+        let desiredH = min(max(image.size.height + toolbarH + 104, minH), maxH)
 
         let contentRect = NSRect(
             x: targetScreen.visibleFrame.midX - desiredW / 2,
@@ -413,9 +499,10 @@ public class ScreenshotEditorWindowController: NSObject, NSWindowDelegate {
             backing: .buffered,
             defer: false
         )
-        win.title = "Designer Studio"
+        win.title = "Studio"
         win.titlebarAppearsTransparent = true
         win.titleVisibility = .hidden
+        win.titlebarSeparatorStyle = .none
         win.isReleasedWhenClosed = false
         win.delegate = self
         win.backgroundColor = NSColor.windowBackgroundColor
@@ -425,15 +512,207 @@ public class ScreenshotEditorWindowController: NSObject, NSWindowDelegate {
             self?.window?.level = self?.state.isPinned == true ? .floating : .normal
         }
 
+        wireBackdropAndCropActions()
+
         let rootView = ScreenshotEditorRootView(state: state, onClose: { [weak self] in
             self?.close()
         })
-        win.contentView = NSHostingView(rootView: rootView)
+        let hosting = NSHostingView(rootView: rootView)
+        if #available(macOS 26.0, *) {
+            hosting.safeAreaRegions = []
+        }
+        win.contentView = hosting
 
         self.window = win
         win.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         installKeyboardMonitors()
+    }
+
+    private func wireBackdropAndCropActions() {
+        state.onRequestToggleBackgroundRemoval = { [weak self] in
+            guard let self else { return }
+            if self.state.backdropConfig.removeSubjectBackground {
+                self.state.backdropConfig.removeSubjectBackground = false
+                self.state.onBackdropChanged?()
+                self.state.onCanvasMutated?()
+                return
+            }
+            if self.state.cutoutImage != nil {
+                self.state.backdropConfig.removeSubjectBackground = true
+                self.state.onBackdropChanged?()
+                self.state.onCanvasMutated?()
+                return
+            }
+            guard let sourceImg = self.state.image else { return }
+            self.state.isRemovingBackground = true
+            Task { @MainActor [weak self] in
+                let cut = await ImageBackdropCompositor.removeBackground(from: sourceImg)
+                guard let self else { return }
+                self.state.isRemovingBackground = false
+                if let cut {
+                    self.state.pushUndoSnapshot()
+                    self.state.cutoutImage = cut
+                    self.state.backdropConfig.removeSubjectBackground = true
+                    if self.state.backdropConfig.backdropType == .none {
+                        self.state.backdropConfig.backdropType = .gradient
+                    }
+                    self.state.onBackdropChanged?()
+                    self.state.onCanvasMutated?()
+                } else {
+                    ToastHUDController.shared.showSimpleToast(message: "Could not isolate foreground subject", icon: "exclamationmark.triangle")
+                }
+            }
+        }
+
+        state.onRequestChooseBackdropPhoto = { [weak self] in
+            guard let self else { return }
+            let panel = NSOpenPanel()
+            panel.allowedContentTypes = [.image]
+            panel.allowsMultipleSelection = false
+            panel.prompt = "Use Background"
+            if panel.runModal() == .OK, let url = panel.url, let loaded = NSImage(contentsOf: url) {
+                self.state.backdropConfig.customPhoto = loaded
+                self.state.backdropConfig.backdropType = .photo
+                self.state.onBackdropChanged?()
+                self.state.onCanvasMutated?()
+            }
+        }
+
+        state.onRequestChooseBackdropGIF = { [weak self] in
+            guard let self else { return }
+            let panel = NSOpenPanel()
+            panel.allowedContentTypes = [.gif]
+            panel.allowsMultipleSelection = false
+            panel.prompt = "Use Animated GIF"
+            if panel.runModal() == .OK, let url = panel.url {
+                let frames = ImageBackdropCompositor.loadGIFFrames(url: url)
+                if !frames.isEmpty {
+                    self.state.backdropConfig.customGifURL = url
+                    self.state.backdropConfig.backdropType = .gif
+                    self.state.gifFrames = frames
+                    self.state.currentGifFrameIndex = 0
+                    self.state.onBackdropChanged?()
+                    self.state.onCanvasMutated?()
+                } else {
+                    ToastHUDController.shared.showSimpleToast(message: "Unable to decode GIF frames", icon: "exclamationmark.triangle")
+                }
+            }
+        }
+
+        state.onRequestCancelCrop = { [weak self] in
+            guard let self else { return }
+            self.state.pendingCropRect = nil
+            self.state.selectTool(.pointer)
+        }
+
+        state.onRequestApplyCrop = { [weak self] in
+            self?.applyPendingCrop()
+        }
+
+        state.onRequestGrabOCRText = { [weak self] in
+            guard let self, let sourceImg = self.state.activeSubjectImage ?? self.state.image,
+                  let cg = sourceImg.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return }
+            Task {
+                let request = VNRecognizeTextRequest()
+                request.recognitionLevel = .accurate
+                request.usesLanguageCorrection = true
+                let handler = VNImageRequestHandler(cgImage: cg, options: [:])
+                try? handler.perform([request])
+                let lines = (request.results ?? []).compactMap { $0.topCandidates(1).first?.string }
+                let joined = lines.joined(separator: "\n")
+                await MainActor.run {
+                    if joined.isEmpty {
+                        ToastHUDController.shared.showSimpleToast(message: "No text found in image", icon: "text.magnifyingglass")
+                    } else {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(joined, forType: .string)
+                        ToastHUDController.shared.showSimpleToast(message: "Copied text to clipboard", icon: "text.viewfinder")
+                    }
+                }
+            }
+        }
+    }
+
+    private func applyPendingCrop() {
+        guard let cropRect = state.pendingCropRect,
+              cropRect.width >= 8, cropRect.height >= 8,
+              let baseImg = state.image else {
+            state.pendingCropRect = nil
+            return
+        }
+
+        state.pushUndoSnapshot()
+
+        func sliceImage(_ src: NSImage) -> NSImage {
+            let pixW = max(1, Int(src.representations.first?.pixelsWide ?? Int(src.size.width * 2)))
+            let pixH = max(1, Int(src.representations.first?.pixelsHigh ?? Int(src.size.height * 2)))
+            let sx = CGFloat(pixW) / max(1, src.size.width)
+            let sy = CGFloat(pixH) / max(1, src.size.height)
+
+            let outPixW = max(2, Int(round(cropRect.width * sx)))
+            let outPixH = max(2, Int(round(cropRect.height * sy)))
+            let colorSpace = CGColorSpaceCreateDeviceRGB()
+
+            guard let ctx = CGContext(
+                data: nil,
+                width: outPixW,
+                height: outPixH,
+                bitsPerComponent: 8,
+                bytesPerRow: 0,
+                space: colorSpace,
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+            ) else { return src }
+
+            let gCtx = NSGraphicsContext(cgContext: ctx, flipped: false)
+            NSGraphicsContext.saveGraphicsState()
+            NSGraphicsContext.current = gCtx
+
+            let destRect = NSRect(x: 0, y: 0, width: outPixW, height: outPixH)
+            // Source crop coordinates are top-left relative; NSImage draws from bottom-left origin
+            let srcRect = NSRect(
+                x: cropRect.origin.x * (src.size.width / src.size.width),
+                y: src.size.height - cropRect.maxY,
+                width: cropRect.width,
+                height: cropRect.height
+            )
+            src.draw(in: destRect, from: srcRect, operation: .copy, fraction: 1.0)
+            NSGraphicsContext.restoreGraphicsState()
+
+            guard let outCG = ctx.makeImage() else { return src }
+            return NSImage(cgImage: outCG, size: NSSize(width: cropRect.width, height: cropRect.height))
+        }
+
+        let newBase = sliceImage(baseImg)
+        let newCutout = state.cutoutImage.map { sliceImage($0) }
+
+        let dx = -cropRect.origin.x
+        let dy = -cropRect.origin.y
+        state.annotations = state.annotations.map { ann in
+            var shifted = ann
+            shifted.startPoint = CGPoint(x: ann.startPoint.x + dx, y: ann.startPoint.y + dy)
+            shifted.endPoint = CGPoint(x: ann.endPoint.x + dx, y: ann.endPoint.y + dy)
+            if let cp = ann.controlPoint {
+                shifted.controlPoint = CGPoint(x: cp.x + dx, y: cp.y + dy)
+            }
+            shifted.pathPoints = ann.pathPoints.map { CGPoint(x: $0.x + dx, y: $0.y + dy) }
+            return shifted
+        }
+
+        state.image = newBase
+        state.imageSize = newBase.size
+        state.cutoutImage = newCutout
+        if let cg = newBase.cgImage(forProposedRect: nil, context: nil, hints: nil) {
+            state.pixelSize = CGSize(width: cg.width, height: cg.height)
+        } else {
+            state.pixelSize = newBase.size
+        }
+        state.pendingCropRect = nil
+        state.zoomScale = 1.0
+        state.panOffset = .zero
+        state.selectTool(.pointer)
+        state.onBackdropChanged?()
+        state.onCanvasMutated?()
     }
 
     public func addSampleAnnotationsForTesting(selectedIndex: Int = 3) {
@@ -460,18 +739,54 @@ public class ScreenshotEditorWindowController: NSObject, NSWindowDelegate {
         state.onOpenTextEditorAtIndex?(index)
     }
 
+    public func configureTestingVisuals(
+        frameStyle: WindowFrameStyle = .none,
+        backdropType: BackdropType = .none,
+        gradientId: String = "dusk",
+        windowTitle: String = "",
+        openBackdropPopover: Bool = false,
+        openColorPopover: Bool = false,
+        expandCustomColor: Bool = false,
+        selectSpotlight: Bool = false
+    ) {
+        state.backdropConfig.frameStyle = frameStyle
+        state.backdropConfig.backdropType = backdropType
+        state.backdropConfig.gradientId = gradientId
+        state.backdropConfig.windowTitle = windowTitle
+        state.annotationColorPickerState.showCustomSpectrum = expandCustomColor
+        if backdropType == .gif {
+            state.gifFrames = ImageBackdropCompositor.generateBuiltInGIFFrames(presetId: state.backdropConfig.gifPresetId)
+            state.currentGifFrameIndex = 0
+        }
+        if selectSpotlight {
+            let spot = CanvasAnnotation(
+                tool: .spotlight,
+                startPoint: CGPoint(x: 345, y: 155),
+                endPoint: CGPoint(x: 615, y: 310),
+                color: state.spotlightColor,
+                strokeWidth: 2.0,
+                cornerRadius: 12.0
+            )
+            state.annotations.append(spot)
+            state.selectedAnnotationIndex = state.annotations.count - 1
+            state.currentTool = .spotlight
+        }
+        state.onBackdropChanged?()
+        state.onCanvasMutated?()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+            self?.state.isBackdropPopoverOpen = openBackdropPopover
+            self?.state.isColorPopoverOpen = openColorPopover
+        }
+    }
+
     public func close() {
         removeKeyboardMonitors()
-        DesignerColorPanelController.shared.clearHandler()
-        NSColorPanel.shared.orderOut(nil)
         window?.orderOut(nil)
         window = nil
     }
 
     public func windowWillClose(_ notification: Notification) {
         removeKeyboardMonitors()
-        DesignerColorPanelController.shared.clearHandler()
-        NSColorPanel.shared.orderOut(nil)
         window = nil
     }
 
@@ -567,6 +882,11 @@ public class ScreenshotEditorWindowController: NSObject, NSWindowDelegate {
                         }
                         return nil
                     }
+                case 36, 76: // Return -> apply pending crop cleanly
+                    if self.state.currentTool == .crop && self.state.pendingCropRect != nil {
+                        self.state.onRequestApplyCrop?()
+                        return nil
+                    }
                 default:
                     break
                 }
@@ -576,6 +896,7 @@ public class ScreenshotEditorWindowController: NSObject, NSWindowDelegate {
             if !isCmd && !hasOtherMods && !isShift {
                 switch event.keyCode {
                 case 9:  self.state.selectTool(.pointer); return nil      // V
+                case 40: self.state.selectTool(.crop); return nil         // K
                 case 2:  self.state.selectTool(.distance); return nil     // D
                 case 0:  self.state.selectTool(.arrow); return nil        // A
                 case 17: self.state.selectTool(.text); return nil         // T
@@ -590,6 +911,7 @@ public class ScreenshotEditorWindowController: NSObject, NSWindowDelegate {
                     return nil
                 case 35: self.state.selectTool(.pencil); return nil       // P
                 case 11: self.state.selectTool(.blur); return nil         // B
+                case 1:  self.state.selectTool(.spotlight); return nil    // S
                 default: break
                 }
             }
@@ -617,15 +939,25 @@ public class ScreenshotEditorWindowController: NSObject, NSWindowDelegate {
     }
 }
 
-// MARK: - Root View with Unified macOS Studio Toolbar & Floating Inspector
+// MARK: - Root View with Unified Compact Toolbar & Bottom Pill Inspector
 public struct ScreenshotEditorRootView: View {
     @ObservedObject var state: ScreenshotEditorState
     let onClose: () -> Void
 
+    private var isBackdropCustomized: Bool {
+        state.backdropConfig.backdropType != .none ||
+        state.backdropConfig.frameStyle != .none ||
+        state.backdropConfig.removeSubjectBackground
+    }
+
+    private var isGIFFrameExport: Bool {
+        state.backdropConfig.backdropType == .gif && !state.gifFrames.isEmpty
+    }
+
     public var body: some View {
         VStack(spacing: 0) {
             toolbarHeader
-                .frame(height: 52)
+                .frame(height: 50)
                 .background(
                     Rectangle()
                         .fill(.regularMaterial)
@@ -636,34 +968,48 @@ public struct ScreenshotEditorRootView: View {
                         }
                 )
 
-            ZStack(alignment: .top) {
+            ZStack(alignment: .bottom) {
                 ScreenshotEditorCanvasRepresentable(state: state)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-                // Contextual Floating Inspector Bar (Apple HIG / Figma Craft)
+                // Contextual Floating Inspector Capsule along bottom edge
                 DesignerInspectorBar(state: state)
-                    .padding(.top, 12)
+                    .padding(.bottom, 16)
             }
         }
-        .edgesIgnoringSafeArea(.top)
+        .ignoresSafeArea(.container, edges: .top)
         .onAppear {
             state.onRequestCopy = { copyFlattenedImage() }
-            state.onRequestSave = { savePNGToDownloads() }
+            state.onRequestSave = {
+                if state.backdropConfig.backdropType == .gif && !state.gifFrames.isEmpty {
+                    saveGIFToDownloads()
+                } else {
+                    savePNGToDownloads()
+                }
+            }
+            state.onRequestSaveGIF = { saveGIFToDownloads() }
         }
     }
 
     // MARK: - Toolbar Header
     private var toolbarHeader: some View {
         HStack(spacing: 12) {
-            Spacer().frame(width: 70)
+            Spacer().frame(width: 72)
 
-            // Left Cluster: Clean Borderless Apple Toolbar Actions
+            // Left Cluster: Export, Pin & Undo/Redo
             HStack(spacing: 4) {
-                toolbarIconButton(icon: "doc.on.doc", tooltip: "Copy annotated image (⌘C)") {
+                toolbarIconButton(icon: "doc.on.doc", tooltip: "Copy image (⌘C)") {
                     copyFlattenedImage()
                 }
-                toolbarIconButton(icon: "square.and.arrow.down", tooltip: "Save PNG to Downloads (⌘S)") {
-                    savePNGToDownloads()
+                toolbarIconButton(
+                    icon: isGIFFrameExport ? "arrow.down.circle" : "square.and.arrow.down",
+                    tooltip: isGIFFrameExport ? "Save Animated GIF to Downloads (⌘S)" : "Save PNG to Downloads (⌘S)"
+                ) {
+                    if isGIFFrameExport {
+                        saveGIFToDownloads()
+                    } else {
+                        savePNGToDownloads()
+                    }
                 }
                 toolbarIconButton(
                     icon: state.isPinned ? "pin.fill" : "pin",
@@ -693,9 +1039,9 @@ public struct ScreenshotEditorRootView: View {
 
             Spacer()
 
-            // Center Cluster: Segmented Studio Tool Dock
+            // Center Cluster: Clean Everyday Editing Dock
             HStack(spacing: 2) {
-                ForEach(AnnotationTool.allCases) { tool in
+                ForEach(AnnotationTool.primaryToolbarTools) { tool in
                     let isSelected = state.currentTool == tool
                     Button(action: {
                         state.selectTool(tool)
@@ -703,7 +1049,7 @@ public struct ScreenshotEditorRootView: View {
                         Image(systemName: tool.icon)
                             .font(.system(size: 13.5, weight: isSelected ? .semibold : .regular))
                             .foregroundColor(isSelected ? Color(red: 10/255, green: 132/255, blue: 255/255) : .primary.opacity(0.82))
-                            .frame(width: 30, height: 26)
+                            .frame(width: 29, height: 26)
                             .background(
                                 RoundedRectangle(cornerRadius: 7, style: .continuous)
                                     .fill(isSelected ? Color(nsColor: .controlBackgroundColor) : Color.clear)
@@ -717,6 +1063,42 @@ public struct ScreenshotEditorRootView: View {
                     .buttonStyle(.plain)
                     .help(tool.tooltip)
                 }
+
+                Divider().frame(height: 14).padding(.horizontal, 2)
+
+                Menu {
+                    Button {
+                        state.selectTool(.distance)
+                    } label: {
+                        Label("Measure Spacing (D)", systemImage: state.currentTool == .distance ? "checkmark" : "ruler")
+                    }
+                    Button {
+                        state.onRequestGrabOCRText?()
+                    } label: {
+                        Label("Grab Text from Image", systemImage: "text.viewfinder")
+                    }
+                    if isGIFFrameExport {
+                        Divider()
+                        Button {
+                            savePNGToDownloads()
+                        } label: {
+                            Label("Save Still Frame PNG", systemImage: "photo")
+                        }
+                    }
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(state.currentTool == .distance ? Color(red: 10/255, green: 132/255, blue: 255/255) : .primary.opacity(0.72))
+                        .frame(width: 26, height: 26)
+                        .background(
+                            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                .fill(state.currentTool == .distance ? Color(nsColor: .controlBackgroundColor) : Color.clear)
+                        )
+                }
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .fixedSize()
+                .help("More tools")
             }
             .padding(3)
             .background(
@@ -730,71 +1112,47 @@ public struct ScreenshotEditorRootView: View {
 
             Spacer()
 
-            // Right Cluster: Hex Loupe + Contrast, Pixels/Points Size, Compact Zoom Pill
-            HStack(spacing: 12) {
+            // Right Cluster: Compact Backdrop Popover Trigger & Zoom Pill
+            HStack(spacing: 8) {
                 Button(action: {
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(state.hoveredHexColor, forType: .string)
-                    ToastHUDController.shared.showSimpleToast(message: "Copied \(state.hoveredHexColor)", icon: "checkmark")
+                    state.isBackdropPopoverOpen.toggle()
                 }) {
-                    HStack(spacing: 7) {
-                        if let bg = state.pinnedBgHexColor {
-                            HStack(spacing: -4) {
-                                Circle().fill(Color(hex: bg) ?? .black)
-                                    .frame(width: 13, height: 13)
-                                    .overlay(Circle().stroke(Color.white.opacity(0.65), lineWidth: 0.8))
-                                Circle().fill(Color(hex: state.hoveredHexColor) ?? .blue)
-                                    .frame(width: 13, height: 13)
-                                    .overlay(Circle().stroke(Color.primary.opacity(0.25), lineWidth: 0.6))
-                            }
-                        } else {
-                            Circle()
-                                .fill(Color(hex: state.hoveredHexColor) ?? .blue)
-                                .frame(width: 13, height: 13)
-                                .overlay(Circle().stroke(Color.primary.opacity(0.22), lineWidth: 0.7))
-                        }
-
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(verbatim: state.hoveredHexColor)
-                                .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                                .foregroundColor(.primary)
-                                .lineLimit(1)
-
-                            if let contrast = state.contrastInfo {
-                                Text(verbatim: String(format: "%.1f:1 %@", contrast.ratio, contrast.badge))
-                                    .font(.system(size: 9.5, weight: .semibold))
-                                    .foregroundColor(contrast.passedAA ? Color(red: 48/255, green: 209/255, blue: 88/255) : Color(red: 255/255, green: 159/255, blue: 10/255))
-                                    .lineLimit(1)
-                            } else {
-                                Text("Tab to copy")
-                                    .font(.system(size: 9.5))
-                                    .foregroundColor(.secondary)
-                                    .lineLimit(1)
-                            }
-                        }
+                    HStack(spacing: 6) {
+                        Image(systemName: "photo.on.rectangle.angled")
+                            .font(.system(size: 12.5, weight: .medium))
+                        Text("Backdrop")
+                            .font(.system(size: 12, weight: .medium))
                     }
-                    .fixedSize(horizontal: true, vertical: false)
+                    .foregroundColor(
+                        (isBackdropCustomized || state.isBackdropPopoverOpen)
+                            ? Color(red: 10/255, green: 132/255, blue: 255/255)
+                            : .primary.opacity(0.84)
+                    )
+                    .padding(.horizontal, 10)
+                    .frame(height: 28)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .fill(
+                                (isBackdropCustomized || state.isBackdropPopoverOpen)
+                                    ? Color(red: 10/255, green: 132/255, blue: 255/255).opacity(0.11)
+                                    : Color.primary.opacity(0.05)
+                            )
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .stroke(
+                                (isBackdropCustomized || state.isBackdropPopoverOpen)
+                                    ? Color(red: 10/255, green: 132/255, blue: 255/255).opacity(0.28)
+                                    : Color.primary.opacity(0.08),
+                                lineWidth: 0.5
+                            )
+                    )
                 }
                 .buttonStyle(.plain)
-                .help("Click or press Tab to copy Hex • ⇧Tab locks contrast background")
-
-                Divider().frame(height: 18)
-
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(verbatim: "\(Int(state.pixelSize.width))×\(Int(state.pixelSize.height)) px")
-                        .font(.system(size: 11, weight: .medium, design: .rounded))
-                        .monospacedDigit()
-                        .foregroundColor(.primary)
-                        .lineLimit(1)
-                    Text(verbatim: "\(Int(state.imageSize.width))×\(Int(state.imageSize.height)) pt")
-                        .font(.system(size: 9.5))
-                        .monospacedDigit()
-                        .foregroundColor(.secondary)
-                        .lineLimit(1)
+                .help("Add background gradient, photo, animated GIF, or window frame")
+                .popover(isPresented: $state.isBackdropPopoverOpen, arrowEdge: .bottom) {
+                    BackdropStudioPopover(state: state)
                 }
-                .fixedSize(horizontal: true, vertical: false)
-
-                Divider().frame(height: 18)
 
                 Menu {
                     Button("Zoom to Fit (⌘0)") { state.onRequestZoomFit?() }
@@ -811,13 +1169,13 @@ public struct ScreenshotEditorRootView: View {
                 .menuStyle(.borderlessButton)
                 .fixedSize()
                 .padding(.horizontal, 8)
-                .frame(height: 26)
+                .frame(height: 28)
                 .background(
-                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
                         .fill(Color.primary.opacity(0.05))
                 )
                 .overlay(
-                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
                         .stroke(Color.primary.opacity(0.08), lineWidth: 0.5)
                 )
                 .help("Scroll or pinch to zoom under cursor (⌘+ / ⌘- / ⌘0)")
@@ -856,7 +1214,7 @@ public struct ScreenshotEditorRootView: View {
             pboard.setData(png, forType: .png)
             pboard.setData(tiff, forType: .tiff)
             NSSound.beep()
-            ToastHUDController.shared.showSimpleToast(message: "Image with annotations copied", icon: "doc.on.doc")
+            ToastHUDController.shared.showSimpleToast(message: "Image copied to clipboard", icon: "doc.on.doc")
         }
     }
 
@@ -877,9 +1235,26 @@ public struct ScreenshotEditorRootView: View {
         do {
             try pngData.write(to: fileUrl)
             NSSound.beep()
-            ToastHUDController.shared.showSimpleToast(message: "Saved to Downloads", icon: "arrow.down.doc")
+            ToastHUDController.shared.showSimpleToast(message: "Saved PNG to Downloads", icon: "arrow.down.doc")
         } catch {
             print("Failed to save image: \(error)")
+        }
+    }
+
+    private func saveGIFToDownloads() {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd 'at' HH.mm.ss"
+        let dateStr = formatter.string(from: Date())
+        let filename = "Canvas \(dateStr).gif"
+
+        let downloadsUrl = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask)[0]
+        let fileUrl = downloadsUrl.appendingPathComponent(filename)
+
+        if ScreenshotEditorCanvasNSView.exportAnimatedGIF(state: state, to: fileUrl) {
+            NSSound.beep()
+            ToastHUDController.shared.showSimpleToast(message: "Saved Animated GIF to Downloads", icon: "sparkles")
+        } else {
+            savePNGToDownloads()
         }
     }
 }
@@ -1261,6 +1636,11 @@ public class ScreenshotEditorCanvasNSView: NSView {
     private static let ciContext = CIContext(options: [.useSoftwareRenderer: false])
     private var cachedBlurredNSImage: NSImage?
     private var cachedBlurredImageID: ObjectIdentifier?
+    private var gifTimer: Timer?
+
+    deinit {
+        gifTimer?.invalidate()
+    }
 
     public init(state: ScreenshotEditorState) {
         self.state = state
@@ -1294,10 +1674,33 @@ public class ScreenshotEditorCanvasNSView: NSView {
         state.onLivePropertyChanged = { [weak self] in self?.syncInlineTextStyleFromState() }
         state.onOpenTextEditorAtIndex = { [weak self] idx in self?.beginEditingTextAnnotation(at: idx) }
         state.onCanvasMutated = { [weak self] in self?.needsDisplay = true }
+        state.onBackdropChanged = { [weak self] in
+            self?.syncGIFTimer()
+            self?.updateEffectiveDisplayScaleTelemetry()
+            self?.needsDisplay = true
+        }
+        syncGIFTimer()
+    }
+
+    private func syncGIFTimer() {
+        gifTimer?.invalidate()
+        gifTimer = nil
+        guard state.backdropConfig.backdropType == .gif, !state.gifFrames.isEmpty else { return }
+        let idx = state.currentGifFrameIndex % state.gifFrames.count
+        let delay = max(0.035, state.gifFrames[idx].duration)
+        gifTimer = Timer.scheduledTimer(withTimeInterval: delay, repeats: false) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                guard self.state.backdropConfig.backdropType == .gif, !self.state.gifFrames.isEmpty else { return }
+                self.state.currentGifFrameIndex = (self.state.currentGifFrameIndex + 1) % self.state.gifFrames.count
+                self.needsDisplay = true
+                self.syncGIFTimer()
+            }
+        }
     }
 
     private func updateCaches() {
-        guard let img = state.image else {
+        guard let img = state.activeSubjectImage ?? state.image else {
             pixelBuffer = nil
             cachedImageID = nil
             cachedBlurredNSImage = nil
@@ -1308,10 +1711,8 @@ public class ScreenshotEditorCanvasNSView: NSView {
         if cachedImageID != imgID {
             cachedImageID = imgID
             self.pixelBuffer = PixelInspectBuffer(image: img)
-        }
-        if cachedBlurredImageID != imgID {
-            cachedBlurredImageID = imgID
             self.cachedBlurredNSImage = Self.buildPixellatedImage(from: img)
+            self.cachedBlurredImageID = imgID
         }
     }
 
@@ -1352,13 +1753,19 @@ public class ScreenshotEditorCanvasNSView: NSView {
         }
     }
 
-    // MARK: - Coordinate Mapping & Zoom Math
+    // MARK: - Coordinate Mapping & Zoom Math (Aware of Frame, Cutout & Backdrop Padding)
+    private func compositeLayout() -> ImageBackdropCompositor.CompositeLayout {
+        let subSize = state.activeSubjectImage?.size ?? state.imageSize
+        return ImageBackdropCompositor.layout(forSubjectSize: subSize, config: state.backdropConfig)
+    }
+
     private func baseFitScale() -> CGFloat {
-        guard let img = state.image, img.size.width > 0 && img.size.height > 0 else { return 1.0 }
+        let layout = compositeLayout()
+        guard layout.canvasSize.width > 0 && layout.canvasSize.height > 0 else { return 1.0 }
         guard bounds.width > 80 && bounds.height > 80 else { return 1.0 }
-        let availW = bounds.width - 40
-        let availH = bounds.height - 60 // Extra breathing room at top for floating inspector
-        return min(min(availW / img.size.width, availH / img.size.height), 1.0)
+        let availW = bounds.width - 48
+        let availH = bounds.height - 84 // Clear breathing room above bottom contextual bar
+        return min(min(availW / layout.canvasSize.width, availH / layout.canvasSize.height), 1.0)
     }
 
     private func effectiveScale() -> CGFloat {
@@ -1375,38 +1782,50 @@ public class ScreenshotEditorCanvasNSView: NSView {
         }
     }
 
-    private func imageDisplayRect() -> NSRect {
-        guard let img = state.image, img.size.width > 0 && img.size.height > 0 else { return bounds }
+    private func canvasDisplayRect() -> NSRect {
+        let layout = compositeLayout()
         let scale = effectiveScale()
-        let renderW = img.size.width * scale
-        let renderH = img.size.height * scale
+        let w = layout.canvasSize.width * scale
+        let h = layout.canvasSize.height * scale
         let cx = bounds.midX + state.panOffset.x
-        let cy = bounds.midY + state.panOffset.y - 12 // Slight downward bias beneath floating inspector
-        return NSRect(x: cx - renderW / 2, y: cy - renderH / 2, width: renderW, height: renderH)
+        let cy = bounds.midY + state.panOffset.y + 12 // Lifted gently clear of bottom bar
+        return NSRect(x: cx - w / 2, y: cy - h / 2, width: w, height: h)
+    }
+
+    private func imageDisplayRect() -> NSRect {
+        let layout = compositeLayout()
+        let canvasR = canvasDisplayRect()
+        let scale = effectiveScale()
+        return NSRect(
+            x: canvasR.origin.x + layout.subjectRect.origin.x * scale,
+            y: canvasR.origin.y + layout.subjectRect.origin.y * scale,
+            width: layout.subjectRect.width * scale,
+            height: layout.subjectRect.height * scale
+        )
     }
 
     private func viewPointToImagePointUnclamped(_ viewPt: NSPoint) -> CGPoint? {
         let r = imageDisplayRect()
-        guard r.width > 0 && r.height > 0, let img = state.image else { return nil }
+        guard r.width > 0 && r.height > 0, let img = state.activeSubjectImage ?? state.image else { return nil }
         let relX = (viewPt.x - r.origin.x) / r.width
         let relY = (viewPt.y - r.origin.y) / r.height
         return CGPoint(x: relX * img.size.width, y: (1.0 - relY) * img.size.height)
     }
 
     private func viewPointToImagePoint(_ viewPt: NSPoint) -> CGPoint? {
-        guard let pt = viewPointToImagePointUnclamped(viewPt), let img = state.image else { return nil }
+        guard let pt = viewPointToImagePointUnclamped(viewPt), let img = state.activeSubjectImage ?? state.image else { return nil }
         guard pt.x >= 0 && pt.x <= img.size.width && pt.y >= 0 && pt.y <= img.size.height else { return nil }
         return pt
     }
 
     private func viewPointToClampedImagePoint(_ viewPt: NSPoint) -> CGPoint? {
-        guard let pt = viewPointToImagePointUnclamped(viewPt), let img = state.image else { return nil }
+        guard let pt = viewPointToImagePointUnclamped(viewPt), let img = state.activeSubjectImage ?? state.image else { return nil }
         return CGPoint(x: max(0, min(img.size.width, pt.x)), y: max(0, min(img.size.height, pt.y)))
     }
 
     private func imagePointToViewPoint(_ imgPt: CGPoint) -> NSPoint {
         let r = imageDisplayRect()
-        guard let img = state.image, img.size.width > 0 && img.size.height > 0 else { return .zero }
+        guard let img = state.activeSubjectImage ?? state.image, img.size.width > 0 && img.size.height > 0 else { return .zero }
         let relX = imgPt.x / img.size.width
         let relY = 1.0 - (imgPt.y / img.size.height)
         return NSPoint(x: r.origin.x + relX * r.width, y: r.origin.y + relY * r.height)
@@ -1418,7 +1837,7 @@ public class ScreenshotEditorCanvasNSView: NSView {
         guard oldEff > 0 else { return }
 
         let oldCenterX = bounds.midX + state.panOffset.x
-        let oldCenterY = bounds.midY + state.panOffset.y - 12
+        let oldCenterY = bounds.midY + state.panOffset.y + 12
         let offsetFromCenterX = (anchor.x - oldCenterX) / oldEff
         let offsetFromCenterY = (anchor.y - oldCenterY) / oldEff
 
@@ -1435,7 +1854,7 @@ public class ScreenshotEditorCanvasNSView: NSView {
             state.panOffset = .zero
             if abs(newZoomScale - 1.0) < 0.05 { state.zoomScale = 1.0 }
         } else {
-            state.panOffset = CGPoint(x: newCenterX - bounds.midX, y: newCenterY - (bounds.midY - 12))
+            state.panOffset = CGPoint(x: newCenterX - bounds.midX, y: newCenterY - (bounds.midY + 12))
         }
         state.effectiveDisplayScale = effectiveScale()
         syncInlineEditorScaleAndPosition()
@@ -1722,6 +2141,21 @@ public class ScreenshotEditorCanvasNSView: NSView {
         case .blur:
             dragStartImagePoint = imgPt
             liveAnnotation = CanvasAnnotation(tool: .blur, startPoint: imgPt, endPoint: imgPt)
+
+        case .spotlight:
+            dragStartImagePoint = imgPt
+            liveAnnotation = CanvasAnnotation(
+                tool: .spotlight,
+                startPoint: imgPt,
+                endPoint: imgPt,
+                color: state.spotlightColor,
+                strokeWidth: 2.0,
+                cornerRadius: 12.0
+            )
+
+        case .crop:
+            dragStartImagePoint = imgPt
+            state.pendingCropRect = CGRect(origin: imgPt, size: .zero)
         }
 
         needsDisplay = true
@@ -1770,6 +2204,17 @@ public class ScreenshotEditorCanvasNSView: NSView {
 
         let currentImgPt = clampedImgPt
 
+        if state.currentTool == .crop, let start = dragStartImagePoint {
+            state.pendingCropRect = CGRect(
+                x: min(start.x, currentImgPt.x),
+                y: min(start.y, currentImgPt.y),
+                width: abs(currentImgPt.x - start.x),
+                height: abs(currentImgPt.y - start.y)
+            )
+            needsDisplay = true
+            return
+        }
+
         // Drawing New Annotation Live Preview
         if var live = liveAnnotation, let start = dragStartImagePoint {
             var end = currentImgPt
@@ -1798,7 +2243,7 @@ public class ScreenshotEditorCanvasNSView: NSView {
                         }
                     }
                 }
-            } else if live.tool == .rectangle && event.modifierFlags.contains(.shift) {
+            } else if (live.tool == .rectangle || live.tool == .spotlight) && event.modifierFlags.contains(.shift) {
                 // Shift locks aspect ratio 1:1 square cleanly like Figma
                 let dx = end.x - start.x
                 let dy = end.y - start.y
@@ -1821,6 +2266,15 @@ public class ScreenshotEditorCanvasNSView: NSView {
             isPanningCanvas = false
             lastPanViewPoint = nil
             window?.invalidateCursorRects(for: self)
+            return
+        }
+
+        if state.currentTool == .crop {
+            if let r = state.pendingCropRect, (r.width < 10 || r.height < 10) {
+                state.pendingCropRect = nil
+            }
+            dragStartImagePoint = nil
+            needsDisplay = true
             return
         }
 
@@ -2146,7 +2600,7 @@ public class ScreenshotEditorCanvasNSView: NSView {
             if hypot(viewPt.x - vEnd.x, viewPt.y - vEnd.y) <= hitRadius { return .endEndpoint }
             if hypot(viewPt.x - vStart.x, viewPt.y - vStart.y) <= hitRadius { return .startEndpoint }
 
-        case .rectangle, .blur:
+        case .rectangle, .blur, .spotlight:
             let minX = min(ann.startPoint.x, ann.endPoint.x)
             let maxX = max(ann.startPoint.x, ann.endPoint.x)
             let minY = min(ann.startPoint.y, ann.endPoint.y)
@@ -2202,7 +2656,7 @@ public class ScreenshotEditorCanvasNSView: NSView {
                 return min(d1, d2) <= threshold + 6
             }
             return distanceFromPoint(pt, toSegmentStart: ann.startPoint, end: ann.endPoint) <= threshold + 4
-        case .rectangle, .blur:
+        case .rectangle, .blur, .spotlight:
             let r = CGRect(
                 x: min(ann.startPoint.x, ann.endPoint.x),
                 y: min(ann.startPoint.y, ann.endPoint.y),
@@ -2212,7 +2666,7 @@ public class ScreenshotEditorCanvasNSView: NSView {
             return r.contains(pt)
         case .pencil:
             return ann.pathPoints.contains { hypot(pt.x - $0.x, pt.y - $0.y) <= threshold }
-        case .pointer:
+        case .pointer, .crop:
             return false
         }
     }
@@ -2230,24 +2684,59 @@ public class ScreenshotEditorCanvasNSView: NSView {
         super.draw(dirtyRect)
         guard let ctx = NSGraphicsContext.current?.cgContext else { return }
 
-        guard let img = state.image else {
+        guard let img = state.activeSubjectImage ?? state.image else {
             drawStudioStageBackdrop(in: bounds, imageRect: nil, hasEmbeddedShadow: false, ctx: ctx)
             return
         }
+
+        let canvasRect = canvasDisplayRect()
         let imgRect = imageDisplayRect()
         let effScale = effectiveScale()
+        let layout = compositeLayout()
+        let hasBackdropOrFrame = state.backdropConfig.backdropType != .none || state.backdropConfig.frameStyle != .none
 
-        drawStudioStageBackdrop(in: bounds, imageRect: imgRect, hasEmbeddedShadow: state.hasEmbeddedShadow, ctx: ctx)
+        drawStudioStageBackdrop(
+            in: bounds,
+            imageRect: (state.backdropConfig.backdropType == .none && state.backdropConfig.frameStyle == .none) ? imgRect : nil,
+            hasEmbeddedShadow: state.hasEmbeddedShadow,
+            ctx: ctx
+        )
 
-        ctx.saveGState()
-        if !state.hasEmbeddedShadow {
+        if !hasBackdropOrFrame && !state.hasEmbeddedShadow && !state.backdropConfig.removeSubjectBackground {
+            ctx.saveGState()
             ctx.setShadow(offset: CGSize(width: 0, height: -8), blur: 20, color: NSColor.black.withAlphaComponent(0.16).cgColor)
+            ctx.setFillColor(NSColor.windowBackgroundColor.cgColor)
+            ctx.fill(imgRect)
+            ctx.restoreGState()
         }
-        ctx.interpolationQuality = effScale >= 3.0 ? .none : .high
-        img.draw(in: imgRect)
-        ctx.restoreGState()
 
-        if !state.hasEmbeddedShadow {
+        var visibleAnnotations: [CanvasAnnotation] = state.annotations.enumerated().compactMap { index, ann in
+            if index == editingAnnotationIndex && inlineTextContainer != nil { return nil }
+            return ann
+        }
+        if let live = liveAnnotation {
+            visibleAnnotations.append(live)
+        }
+
+        let gifFrameCG: CGImage? = (state.backdropConfig.backdropType == .gif && !state.gifFrames.isEmpty)
+            ? state.gifFrames[state.currentGifFrameIndex % state.gifFrames.count].cgImage
+            : nil
+        let auditUnit = SettingsManager.shared.gridAuditUnit
+
+        ImageBackdropCompositor.renderCompositeContent(
+            layout: layout,
+            subjectImage: img,
+            config: state.backdropConfig,
+            annotations: visibleAnnotations,
+            blurredSubjectImage: cachedBlurredNSImage,
+            gifFrameImage: gifFrameCG,
+            auditUnit: auditUnit,
+            scaleToView: effScale,
+            canvasOriginInView: canvasRect.origin,
+            in: ctx
+        )
+
+        if !hasBackdropOrFrame && !state.hasEmbeddedShadow && !state.backdropConfig.removeSubjectBackground {
             ctx.saveGState()
             ctx.setStrokeColor(NSColor.labelColor.withAlphaComponent(0.08).cgColor)
             ctx.setLineWidth(0.75)
@@ -2264,13 +2753,11 @@ public class ScreenshotEditorCanvasNSView: NSView {
             scale: effScale,
             imageCanvasRect: imgRect
         )
-        let auditUnit = SettingsManager.shared.gridAuditUnit
 
         for (index, ann) in state.annotations.enumerated() {
             if index == editingAnnotationIndex && inlineTextContainer != nil {
                 continue
             }
-            AnnotationRenderer.draw(ann, mapper: mapper, blurredImage: cachedBlurredNSImage, auditUnit: auditUnit, in: ctx)
 
             let isSelected = (index == state.selectedAnnotationIndex)
             let isHovered = (index == hoveredAnnotationIndex)
@@ -2293,8 +2780,65 @@ public class ScreenshotEditorCanvasNSView: NSView {
 
         drawActiveSnapExtensionGuides(in: ctx, imgRect: imgRect)
 
-        if let live = liveAnnotation {
-            AnnotationRenderer.draw(live, mapper: mapper, blurredImage: cachedBlurredNSImage, auditUnit: auditUnit, in: ctx)
+        if state.currentTool == .crop, let crop = state.pendingCropRect, crop.width >= 4, crop.height >= 4 {
+            drawCropOverlay(cropImgRect: crop, imgRect: imgRect, in: ctx)
+        }
+    }
+
+    private func drawCropOverlay(cropImgRect: CGRect, imgRect: NSRect, in ctx: CGContext) {
+        let vTL = imagePointToViewPoint(cropImgRect.origin)
+        let vBR = imagePointToViewPoint(CGPoint(x: cropImgRect.maxX, y: cropImgRect.maxY))
+        let cropR = AnnotationRenderer.normalizedRect(from: vTL, to: vBR)
+
+        ctx.saveGState()
+        ctx.clip(to: imgRect)
+
+        let dimPath = CGMutablePath()
+        dimPath.addRect(imgRect)
+        dimPath.addRect(cropR)
+        ctx.addPath(dimPath)
+        ctx.setFillColor(NSColor.black.withAlphaComponent(0.46).cgColor)
+        ctx.fillPath(using: .evenOdd)
+
+        ctx.setStrokeColor(NSColor.white.withAlphaComponent(0.24).cgColor)
+        ctx.setLineWidth(0.75)
+        for i in 1...2 {
+            let frac = CGFloat(i) / 3.0
+            let gx = cropR.minX + cropR.width * frac
+            let gy = cropR.minY + cropR.height * frac
+            ctx.strokeLineSegments(between: [
+                CGPoint(x: gx, y: cropR.minY), CGPoint(x: gx, y: cropR.maxY),
+                CGPoint(x: cropR.minX, y: gy), CGPoint(x: cropR.maxX, y: gy)
+            ])
+        }
+
+        ctx.setStrokeColor(NSColor.white.withAlphaComponent(0.92).cgColor)
+        ctx.setLineWidth(1.5)
+        ctx.stroke(cropR)
+
+        let arm: CGFloat = min(14, min(cropR.width, cropR.height) * 0.35)
+        ctx.setLineWidth(3.0)
+        ctx.setLineCap(.round)
+        let corners: [(CGPoint, CGPoint, CGPoint)] = [
+            (CGPoint(x: cropR.minX, y: cropR.minY + arm), CGPoint(x: cropR.minX, y: cropR.minY), CGPoint(x: cropR.minX + arm, y: cropR.minY)),
+            (CGPoint(x: cropR.maxX - arm, y: cropR.minY), CGPoint(x: cropR.maxX, y: cropR.minY), CGPoint(x: cropR.maxX, y: cropR.minY + arm)),
+            (CGPoint(x: cropR.minX, y: cropR.maxY - arm), CGPoint(x: cropR.minX, y: cropR.maxY), CGPoint(x: cropR.minX + arm, y: cropR.maxY)),
+            (CGPoint(x: cropR.maxX - arm, y: cropR.maxY), CGPoint(x: cropR.maxX, y: cropR.maxY), CGPoint(x: cropR.maxX, y: cropR.maxY - arm))
+        ]
+        for (a, b, c) in corners {
+            ctx.move(to: a); ctx.addLine(to: b); ctx.addLine(to: c)
+        }
+        ctx.strokePath()
+        ctx.restoreGState()
+
+        if cropR.width >= 48 {
+            let dimText = "\(Int(round(cropImgRect.width))) × \(Int(round(cropImgRect.height)))"
+            AnnotationRenderer.drawMeasurementPill(
+                text: dimText,
+                at: CGPoint(x: cropR.midX, y: max(18, cropR.minY - 14)),
+                fill: NSColor(red: 28/255, green: 28/255, blue: 32/255, alpha: 0.90),
+                showOffGridDot: false
+            )
         }
     }
 
@@ -2331,7 +2875,7 @@ public class ScreenshotEditorCanvasNSView: NSView {
             drawSquareHandle(at: mapper.toCanvasPoint(ann.startPoint))
             drawSquareHandle(at: mapper.toCanvasPoint(ann.endPoint))
 
-        case .rectangle, .blur:
+        case .rectangle, .blur, .spotlight:
             let minX = min(ann.startPoint.x, ann.endPoint.x)
             let maxX = max(ann.startPoint.x, ann.endPoint.x)
             let minY = min(ann.startPoint.y, ann.endPoint.y)
@@ -2387,7 +2931,7 @@ public class ScreenshotEditorCanvasNSView: NSView {
             path.lineWidth = 1.0
             path.stroke()
 
-        case .rectangle, .blur:
+        case .rectangle, .blur, .spotlight:
             let tl = mapper.toCanvasPoint(ann.startPoint)
             let br = mapper.toCanvasPoint(ann.endPoint)
             let hoverR = AnnotationRenderer.normalizedRect(from: tl, to: br).insetBy(dx: -3, dy: -3)
@@ -2421,7 +2965,7 @@ public class ScreenshotEditorCanvasNSView: NSView {
             let r = AnnotationRenderer.normalizedRect(from: tl, to: br)
             rawPt = NSPoint(x: r.midX, y: r.maxY + 13)
 
-        case .rectangle, .blur:
+        case .rectangle, .blur, .spotlight:
             let tl = mapper.toCanvasPoint(ann.startPoint)
             let br = mapper.toCanvasPoint(ann.endPoint)
             let r = AnnotationRenderer.normalizedRect(from: tl, to: br)
@@ -2455,7 +2999,7 @@ public class ScreenshotEditorCanvasNSView: NSView {
             let maxY = pts.map(\.y).max() ?? 0
             rawPt = NSPoint(x: (minX + maxX) * 0.5, y: maxY + 13)
 
-        case .pointer:
+        case .pointer, .crop:
             rawPt = .zero
         }
 
@@ -2618,48 +3162,36 @@ public class ScreenshotEditorCanvasNSView: NSView {
         return NSImage(cgImage: resultCG, size: image.size)
     }
 
-    // MARK: - Unified Export Renderer (Zero Duplicated Drawing Code!)
+    // MARK: - Unified Export Renderers
     public static func renderFlattenedImage(state: ScreenshotEditorState) -> NSImage? {
-        guard let baseImage = state.image else { return nil }
-        let size = baseImage.size
-        let pixelW = max(1, Int(state.pixelSize.width > 0 ? state.pixelSize.width : size.width * 2))
-        let pixelH = max(1, Int(state.pixelSize.height > 0 ? state.pixelSize.height : size.height * 2))
-        let scaleX = CGFloat(pixelW) / max(1, size.width)
-        let scaleY = CGFloat(pixelH) / max(1, size.height)
-
-        let colorSpace = CGColorSpaceCreateDeviceRGB()
-        guard let ctx = CGContext(
-            data: nil,
-            width: pixelW,
-            height: pixelH,
-            bitsPerComponent: 8,
-            bytesPerRow: 0,
-            space: colorSpace,
-            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-        ) else { return baseImage }
-
+        guard let baseImage = state.activeSubjectImage ?? state.image else { return nil }
         let mosaicImage = buildPixellatedImage(from: baseImage)
-        let gCtx = NSGraphicsContext(cgContext: ctx, flipped: false)
-        NSGraphicsContext.saveGraphicsState()
-        NSGraphicsContext.current = gCtx
-
-        baseImage.draw(in: NSRect(origin: .zero, size: NSSize(width: pixelW, height: pixelH)))
-        ctx.scaleBy(x: scaleX, y: scaleY)
-
-        let exportMapper = AnnotationRenderer.Mapper(
-            toCanvasPoint: { pt in CGPoint(x: pt.x, y: size.height - pt.y) },
-            scale: 1.0,
-            imageCanvasRect: NSRect(origin: .zero, size: size)
+        let gifFrame: CGImage? = (state.backdropConfig.backdropType == .gif && !state.gifFrames.isEmpty)
+            ? state.gifFrames[state.currentGifFrameIndex % state.gifFrames.count].cgImage
+            : nil
+        return ImageBackdropCompositor.renderFlattenedPNGImage(
+            subjectImage: baseImage,
+            pixelSize: state.pixelSize,
+            config: state.backdropConfig,
+            annotations: state.annotations,
+            blurredSubjectImage: mosaicImage,
+            gifFrameImage: gifFrame,
+            auditUnit: SettingsManager.shared.gridAuditUnit
         )
-        let auditUnit = SettingsManager.shared.gridAuditUnit
+    }
 
-        for ann in state.annotations {
-            AnnotationRenderer.draw(ann, mapper: exportMapper, blurredImage: mosaicImage, auditUnit: auditUnit, in: ctx)
-        }
-
-        NSGraphicsContext.restoreGraphicsState()
-
-        guard let finalCG = ctx.makeImage() else { return baseImage }
-        return NSImage(cgImage: finalCG, size: size)
+    public static func exportAnimatedGIF(state: ScreenshotEditorState, to url: URL) -> Bool {
+        guard let baseImage = state.activeSubjectImage ?? state.image,
+              !state.gifFrames.isEmpty else { return false }
+        let mosaicImage = buildPixellatedImage(from: baseImage)
+        return ImageBackdropCompositor.exportAnimatedGIF(
+            subjectImage: baseImage,
+            config: state.backdropConfig,
+            annotations: state.annotations,
+            blurredSubjectImage: mosaicImage,
+            frames: state.gifFrames,
+            auditUnit: SettingsManager.shared.gridAuditUnit,
+            to: url
+        )
     }
 }

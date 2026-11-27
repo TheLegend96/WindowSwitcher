@@ -75,17 +75,31 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
             let selectStr = (notif.userInfo?["selectIndex"] as? String) ?? (notif.object as? String) ?? "3"
             let selIdx = Int(selectStr) ?? 3
             let editLive = (notif.userInfo?["editLiveText"] as? String) == "true"
+            let frameStr = notif.userInfo?["frame"] as? String ?? "none"
+            let backdropStr = notif.userInfo?["backdrop"] as? String ?? "none"
+            let gradientId = notif.userInfo?["gradient"] as? String ?? "dusk"
+            let titleStr = notif.userInfo?["title"] as? String ?? ""
+            let openBackdrop = (notif.userInfo?["openBackdrop"] as? String) == "true"
+            let openColor = (notif.userInfo?["openColor"] as? String) == "true"
+            let expandCustomColor = (notif.userInfo?["expandCustomColor"] as? String) == "true"
+            let addSpotlight = (notif.userInfo?["spotlight"] as? String) == "true"
+
             Task { @MainActor in
                 // Generate a sample preview image
                 let size = NSSize(width: 800, height: 500)
                 let image = NSImage(size: size, flipped: false) { rect in
                     NSColor.windowBackgroundColor.setFill()
                     rect.fill()
-                    let text = "WindowSwitcher Designer Studio Preview" as NSString
+                    let text = "WindowSwitcher Editor Preview" as NSString
                     text.draw(at: NSPoint(x: 40, y: 440), withAttributes: [
                         .font: NSFont.systemFont(ofSize: 24, weight: .bold),
                         .foregroundColor: NSColor.labelColor
                     ])
+                    let cardRect = NSRect(x: 40, y: 120, width: 720, height: 280)
+                    NSColor.controlBackgroundColor.setFill()
+                    NSBezierPath(roundedRect: cardRect, xRadius: 12, yRadius: 12).fill()
+                    NSColor.separatorColor.setStroke()
+                    NSBezierPath(roundedRect: cardRect, xRadius: 12, yRadius: 12).stroke()
                     let secret = "TOKEN: sk_live_98123_redacted" as NSString
                     secret.draw(at: NSPoint(x: 530, y: 44), withAttributes: [
                         .font: NSFont.monospacedSystemFont(ofSize: 13, weight: .semibold),
@@ -95,6 +109,22 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
                 }
                 ScreenshotEditorWindowController.shared.show(image: image, sourceRect: NSRect(origin: .zero, size: size))
                 ScreenshotEditorWindowController.shared.addSampleAnnotationsForTesting(selectedIndex: selIdx)
+
+                let frameStyle: WindowFrameStyle = (frameStr == "window") ? .macOSWindow : (frameStr == "card" ? .card : .none)
+                let backdropType: BackdropType = (backdropStr == "gradient") ? .gradient : (backdropStr == "gif" ? .gif : (backdropStr == "solid" ? .solid : .none))
+                if frameStyle != .none || backdropType != .none || openBackdrop || openColor || expandCustomColor || addSpotlight {
+                    ScreenshotEditorWindowController.shared.configureTestingVisuals(
+                        frameStyle: frameStyle,
+                        backdropType: backdropType,
+                        gradientId: gradientId,
+                        windowTitle: titleStr,
+                        openBackdropPopover: openBackdrop,
+                        openColorPopover: openColor,
+                        expandCustomColor: expandCustomColor,
+                        selectSpotlight: addSpotlight
+                    )
+                }
+
                 if editLive {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
                         ScreenshotEditorWindowController.shared.openInlineTextForTesting(index: 5)

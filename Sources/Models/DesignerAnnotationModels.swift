@@ -5,40 +5,208 @@ import CoreImage
 // MARK: - Annotation Tool Types
 public enum AnnotationTool: String, CaseIterable, Identifiable {
     case pointer = "Pointer"
-    case distance = "Dimension"
+    case crop = "Crop"
     case arrow = "Arrow"
     case text = "Text"
     case numberedPin = "Numbered Pin"
-    case rectangle = "Rectangle"
     case pencil = "Highlighter"
+    case rectangle = "Rectangle"
     case blur = "Blur"
+    case spotlight = "Spotlight"
+    case distance = "Dimension"
 
     public var id: String { rawValue }
+
+    /// Everyday approachable tools shown in the primary center toolbar.
+    public static var primaryToolbarTools: [AnnotationTool] {
+        [.pointer, .crop, .arrow, .text, .numberedPin, .pencil, .rectangle, .blur, .spotlight]
+    }
 
     public var icon: String {
         switch self {
         case .pointer: return "cursorarrow"
-        case .distance: return "ruler"
+        case .crop: return "crop"
         case .arrow: return "arrow.up.right"
         case .text: return "textformat"
         case .numberedPin: return "1.circle"
-        case .rectangle: return "rectangle"
         case .pencil: return "highlighter"
+        case .rectangle: return "rectangle"
         case .blur: return "checkerboard.rectangle"
+        case .spotlight: return "scope"
+        case .distance: return "ruler"
         }
     }
 
     public var tooltip: String {
         switch self {
-        case .pointer: return "Select, Move & Resize (V)"
-        case .distance: return "Smart Dimension Ruler — Horizontal & Vertical Edge Snap (D)"
+        case .pointer: return "Select & Move (V)"
+        case .crop: return "Crop Image (K)"
         case .arrow: return "Arrow Callout (A)"
-        case .text: return "Text & Speech Quote (T)"
-        case .numberedPin: return "Numbered QA Pin (N)"
-        case .rectangle: return "Rectangle / Card (R or C)"
-        case .pencil: return "Highlighter (P)"
-        case .blur: return "Mosaic Redaction Blur (B)"
+        case .text: return "Text Note (T)"
+        case .numberedPin: return "Step Counter ① (N)"
+        case .pencil: return "Marker Highlight (P)"
+        case .rectangle: return "Box / Card (R)"
+        case .blur: return "Hide / Blur Info (B)"
+        case .spotlight: return "Spotlight Highlight (S)"
+        case .distance: return "Measure Spacing (D)"
         }
+    }
+}
+
+// MARK: - Window Framing, Cutout & Background Studio Models
+
+public enum WindowFrameStyle: String, CaseIterable, Identifiable {
+    case none = "Raw"
+    case card = "Card"
+    case macOSWindow = "Window"
+
+    public var id: String { rawValue }
+}
+
+public enum BackdropType: String, CaseIterable, Identifiable {
+    case none = "None"
+    case gradient = "Gradient"
+    case solid = "Color"
+    case photo = "Photo"
+    case gif = "GIF"
+
+    public var id: String { rawValue }
+}
+
+public enum BackdropAspectRatio: String, CaseIterable, Identifiable {
+    case auto = "Auto"
+    case ratio16x9 = "16:9"
+    case ratio4x3 = "4:3"
+    case ratio1x1 = "1:1"
+
+    public var id: String { rawValue }
+
+    public var ratioValue: CGFloat? {
+        switch self {
+        case .auto: return nil
+        case .ratio16x9: return 16.0 / 9.0
+        case .ratio4x3: return 4.0 / 3.0
+        case .ratio1x1: return 1.0
+        }
+    }
+}
+
+public struct BackdropGradientPreset: Identifiable {
+    public let id: String
+    public let name: String
+    public let startColor: NSColor
+    public let endColor: NSColor
+
+    public var swiftUIStart: Color { Color(startColor) }
+    public var swiftUIEnd: Color { Color(endColor) }
+
+    public static let all: [BackdropGradientPreset] = [
+        BackdropGradientPreset(
+            id: "coastal",
+            name: "Coastal Mist",
+            startColor: NSColor(red: 0.72, green: 0.85, blue: 0.96, alpha: 1.0),
+            endColor: NSColor(red: 0.88, green: 0.89, blue: 0.96, alpha: 1.0)
+        ),
+        BackdropGradientPreset(
+            id: "dusk",
+            name: "Sonoma Dusk",
+            startColor: NSColor(red: 0.25, green: 0.38, blue: 0.65, alpha: 1.0),
+            endColor: NSColor(red: 0.52, green: 0.44, blue: 0.68, alpha: 1.0)
+        ),
+        BackdropGradientPreset(
+            id: "warm",
+            name: "Warm Sand",
+            startColor: NSColor(red: 0.96, green: 0.85, blue: 0.78, alpha: 1.0),
+            endColor: NSColor(red: 0.93, green: 0.75, blue: 0.72, alpha: 1.0)
+        ),
+        BackdropGradientPreset(
+            id: "mint",
+            name: "Mint Glass",
+            startColor: NSColor(red: 0.74, green: 0.93, blue: 0.88, alpha: 1.0),
+            endColor: NSColor(red: 0.76, green: 0.87, blue: 0.96, alpha: 1.0)
+        ),
+        BackdropGradientPreset(
+            id: "sunset",
+            name: "Peach Horizon",
+            startColor: NSColor(red: 0.98, green: 0.73, blue: 0.58, alpha: 1.0),
+            endColor: NSColor(red: 0.89, green: 0.49, blue: 0.61, alpha: 1.0)
+        ),
+        BackdropGradientPreset(
+            id: "ink",
+            name: "Studio Dark",
+            startColor: NSColor(red: 0.14, green: 0.16, blue: 0.21, alpha: 1.0),
+            endColor: NSColor(red: 0.08, green: 0.09, blue: 0.12, alpha: 1.0)
+        )
+    ]
+}
+
+public struct GIFLoopPreset: Identifiable {
+    public let id: String
+    public let name: String
+    public let colorA: NSColor
+    public let colorB: NSColor
+    public let colorC: NSColor
+
+    public static let all: [GIFLoopPreset] = [
+        GIFLoopPreset(
+            id: "aurora",
+            name: "Aurora",
+            colorA: NSColor(red: 0.16, green: 0.28, blue: 0.46, alpha: 1.0),
+            colorB: NSColor(red: 0.10, green: 0.14, blue: 0.24, alpha: 1.0),
+            colorC: NSColor(red: 0.24, green: 0.68, blue: 0.72, alpha: 1.0)
+        ),
+        GIFLoopPreset(
+            id: "warmLoop",
+            name: "Warm Glow",
+            colorA: NSColor(red: 0.94, green: 0.82, blue: 0.76, alpha: 1.0),
+            colorB: NSColor(red: 0.84, green: 0.74, blue: 0.88, alpha: 1.0),
+            colorC: NSColor(red: 0.99, green: 0.72, blue: 0.56, alpha: 1.0)
+        ),
+        GIFLoopPreset(
+            id: "skyDrift",
+            name: "Sky Drift",
+            colorA: NSColor(red: 0.56, green: 0.78, blue: 0.96, alpha: 1.0),
+            colorB: NSColor(red: 0.80, green: 0.88, blue: 0.98, alpha: 1.0),
+            colorC: NSColor(red: 0.40, green: 0.62, blue: 0.98, alpha: 1.0)
+        )
+    ]
+}
+
+public struct BackdropConfig: Equatable {
+    public var frameStyle: WindowFrameStyle = .none
+    public var backdropType: BackdropType = .none
+    public var gradientId: String = "coastal"
+    public var solidColor: NSColor = NSColor(red: 0.92, green: 0.93, blue: 0.96, alpha: 1.0)
+    public var customPhoto: NSImage? = nil
+    public var blurPhotoBackdrop: Bool = false
+    public var gifPresetId: String = "aurora"
+    public var customGifURL: URL? = nil
+    public var padding: CGFloat = 48.0
+    public var cornerRadius: CGFloat = 14.0
+    public var shadowIntensity: Double = 0.60
+    public var aspectRatio: BackdropAspectRatio = .auto
+    public var windowTitle: String = ""
+    public var useDarkWindowChrome: Bool = false
+    public var removeSubjectBackground: Bool = false
+
+    public init() {}
+
+    public static func == (lhs: BackdropConfig, rhs: BackdropConfig) -> Bool {
+        lhs.frameStyle == rhs.frameStyle &&
+        lhs.backdropType == rhs.backdropType &&
+        lhs.gradientId == rhs.gradientId &&
+        lhs.solidColor.hexString == rhs.solidColor.hexString &&
+        lhs.customPhoto === rhs.customPhoto &&
+        lhs.blurPhotoBackdrop == rhs.blurPhotoBackdrop &&
+        lhs.gifPresetId == rhs.gifPresetId &&
+        lhs.customGifURL == rhs.customGifURL &&
+        lhs.padding == rhs.padding &&
+        lhs.cornerRadius == rhs.cornerRadius &&
+        lhs.shadowIntensity == rhs.shadowIntensity &&
+        lhs.aspectRatio == rhs.aspectRatio &&
+        lhs.windowTitle == rhs.windowTitle &&
+        lhs.useDarkWindowChrome == rhs.useDarkWindowChrome &&
+        lhs.removeSubjectBackground == rhs.removeSubjectBackground
     }
 }
 
@@ -440,9 +608,41 @@ public enum AnnotationRenderer {
                 path.fill()
             }
 
-        case .pointer:
+        case .pointer, .crop, .spotlight:
             break
         }
+    }
+
+    /// Renders dimmed scrim with crisp clear rounded cutouts for all Spotlight annotations.
+    public static func drawSpotlights(_ spotlights: [CanvasAnnotation], mapper: Mapper, in ctx: CGContext) {
+        guard !spotlights.isEmpty else { return }
+        let s = mapper.scale
+        let bounds = mapper.imageCanvasRect
+
+        ctx.saveGState()
+        let path = NSBezierPath(rect: bounds)
+        path.windingRule = .evenOdd
+
+        var holeRects: [(NSRect, CGFloat, NSColor)] = []
+        for ann in spotlights {
+            let vStart = mapper.toCanvasPoint(ann.startPoint)
+            let vEnd = mapper.toCanvasPoint(ann.endPoint)
+            let r = normalizedRect(from: vStart, to: vEnd)
+            let rad = min(max(6 * s, ann.cornerRadius * s), min(r.width, r.height) * 0.45)
+            path.append(NSBezierPath(roundedRect: r, xRadius: rad, yRadius: rad))
+            holeRects.append((r, rad, ann.color))
+        }
+
+        NSColor.black.withAlphaComponent(0.50).setFill()
+        path.fill()
+
+        for (r, rad, borderCol) in holeRects {
+            let rim = NSBezierPath(roundedRect: r, xRadius: rad, yRadius: rad)
+            borderCol.withAlphaComponent(0.90).setStroke()
+            rim.lineWidth = max(1.5, 2.0 * min(1.5, s))
+            rim.stroke()
+        }
+        ctx.restoreGState()
     }
 
     // MARK: - Arrow Rendering (4 Styles + Quadratic Curve Support)
@@ -708,19 +908,18 @@ public enum AnnotationRenderer {
 
     // MARK: - Text Callout Rendering (Plain Text | Pill Card | Speech Quote Bubble)
     private static func drawTextCallout(ann: CanvasAnnotation, mapper: Mapper, in ctx: CGContext) {
-        let s = mapper.scale
+        let s = max(0.01, mapper.scale)
         let metrics = textMetrics(text: ann.text, fontSize: ann.strokeWidth, style: ann.textStyle, origin: ann.startPoint)
         let imgBox = metrics.bounds
         let vTopLeft = mapper.toCanvasPoint(imgBox.origin)
         let vBottomRight = mapper.toCanvasPoint(CGPoint(x: imgBox.maxX, y: imgBox.maxY))
         let r = normalizedRect(from: vTopLeft, to: vBottomRight)
 
-        let fontSize = metrics.fontSize * s
         let displayText = ann.text.isEmpty ? "Text" : ann.text
         let textColor = ann.color
-        let font = NSFont.systemFont(ofSize: fontSize, weight: ann.textStyle == .plain ? .semibold : .medium)
+        let font = NSFont.systemFont(ofSize: metrics.fontSize, weight: ann.textStyle == .plain ? .semibold : .medium)
         let paragraph = NSMutableParagraphStyle()
-        paragraph.lineSpacing = max(2, round(metrics.fontSize * 0.14)) * s
+        paragraph.lineSpacing = max(2, round(metrics.fontSize * 0.14))
         let attrs: [NSAttributedString.Key: Any] = [
             .font: font,
             .foregroundColor: textColor,
@@ -730,12 +929,21 @@ public enum AnnotationRenderer {
 
         let padX = metrics.padX * s
         let padY = metrics.padY * s
-        let textDrawRect = NSRect(
-            x: r.origin.x + padX,
-            y: r.origin.y + padY,
-            width: max(12, r.width - padX * 2),
-            height: max(12, r.height - padY * 2)
+        let textOrigin = CGPoint(x: r.origin.x + padX, y: r.origin.y + padY)
+        let unscaledDrawRect = NSRect(
+            x: 0,
+            y: 0,
+            width: max(12, metrics.textSize.width + 4),
+            height: max(12, metrics.textSize.height + 4)
         )
+
+        func drawScaledText() {
+            ctx.saveGState()
+            ctx.translateBy(x: textOrigin.x, y: textOrigin.y)
+            ctx.scaleBy(x: s, y: s)
+            attrStr.draw(in: unscaledDrawRect)
+            ctx.restoreGState()
+        }
 
         ctx.saveGState()
         switch ann.textStyle {
@@ -747,7 +955,7 @@ public enum AnnotationRenderer {
                 blur: 3.5,
                 color: (isLightInk ? NSColor.black : NSColor.white).withAlphaComponent(isLightInk ? 0.65 : 0.72).cgColor
             )
-            attrStr.draw(in: textDrawRect)
+            drawScaledText()
 
         case .card:
             let bg = textColor.relativeLuminance > 0.45
@@ -766,7 +974,7 @@ public enum AnnotationRenderer {
             cardPath.lineWidth = 0.8
             cardPath.stroke()
 
-            attrStr.draw(in: textDrawRect)
+            drawScaledText()
 
         case .quoteBubble:
             let bg = textColor.relativeLuminance > 0.45
@@ -785,7 +993,7 @@ public enum AnnotationRenderer {
             bubblePath.lineWidth = 0.8
             bubblePath.stroke()
 
-            attrStr.draw(in: textDrawRect)
+            drawScaledText()
         }
         ctx.restoreGState()
     }
