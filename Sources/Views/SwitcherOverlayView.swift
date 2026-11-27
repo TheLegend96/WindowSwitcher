@@ -1,7 +1,7 @@
 import SwiftUI
 import AppKit
 
-// MARK: - Native Apple Liquid Glass View (Clear, See-Through, High-Transmittance)
+// MARK: - Native Apple Liquid Glass View (macOS 26+ NSGlassEffectView with Vibrancy Fallback)
 public struct ClearLiquidGlassBase: NSViewRepresentable {
     public var cornerRadius: CGFloat
 
@@ -9,7 +9,13 @@ public struct ClearLiquidGlassBase: NSViewRepresentable {
         self.cornerRadius = cornerRadius
     }
 
-    public func makeNSView(context: Context) -> NSVisualEffectView {
+    public func makeNSView(context: Context) -> NSView {
+        if #available(macOS 26.0, *) {
+            let glass = NSGlassEffectView()
+            glass.style = .regular
+            glass.cornerRadius = cornerRadius
+            return glass
+        }
         let view = NSVisualEffectView()
         view.material = .hudWindow
         view.blendingMode = .behindWindow
@@ -17,10 +23,17 @@ public struct ClearLiquidGlassBase: NSViewRepresentable {
         return view
     }
 
-    public func updateNSView(_ nsView: NSVisualEffectView, context: Context) {
-        nsView.material = .hudWindow
-        nsView.blendingMode = .behindWindow
-        nsView.state = .active
+    public func updateNSView(_ nsView: NSView, context: Context) {
+        if #available(macOS 26.0, *), let glass = nsView as? NSGlassEffectView {
+            glass.style = .regular
+            glass.cornerRadius = cornerRadius
+            return
+        }
+        if let vfx = nsView as? NSVisualEffectView {
+            vfx.material = .hudWindow
+            vfx.blendingMode = .behindWindow
+            vfx.state = .active
+        }
     }
 }
 

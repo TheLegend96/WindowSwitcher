@@ -414,8 +414,17 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
             window.title = "Window Switcher Preferences"
             window.titlebarAppearsTransparent = true
             window.titleVisibility = .hidden
+            window.titlebarSeparatorStyle = .none
+            window.isOpaque = false
+            window.backgroundColor = .clear
+            window.isMovableByWindowBackground = true
             window.isReleasedWhenClosed = false
-            window.contentView = NSHostingView(rootView: SettingsView())
+
+            let hostingView = NSHostingView(rootView: SettingsView())
+            if #available(macOS 26.0, *) {
+                hostingView.safeAreaRegions = []
+            }
+            window.contentView = hostingView
 
             let delegate = SettingsWindowDelegate(appDelegate: self)
             self.settingsWindowDelegate = delegate

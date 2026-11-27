@@ -42,10 +42,6 @@ public enum SettingsTab: String, CaseIterable, Identifiable {
         }
     }
 
-    public var isBlueBadge: Bool {
-        self == .screenshots
-    }
-
     public var groupIndex: Int {
         switch self {
         case .screenshots, .designerTools: return 0
@@ -103,7 +99,7 @@ private let allSearchItems: [SettingsSearchItem] = [
     SettingsSearchItem(title: "Backup, export & import settings", subtitle: "Save preferences to JSON or restore from another Mac", keywords: "backup export import json reset", tab: .general),
 
     SettingsSearchItem(title: "Accessibility & Screen Recording", subtitle: "Verify required macOS privacy permissions", keywords: "permissions accessibility screen recording privacy lock", tab: .privacy),
-    SettingsSearchItem(title: "About Window Switcher", subtitle: "Version, build info, shortcuts summary, and releases", keywords: "about version github release build", tab: .about)
+    SettingsSearchItem(title: "About Window Switcher", subtitle: "Version, build info, source code, releases, and updates", keywords: "about version github release build source code", tab: .about)
 ]
 
 // MARK: - Observable UI State (Zero @State macro usage for CLI builds)
@@ -118,10 +114,12 @@ public final class SettingsUIState: ObservableObject {
     @Published public var previewSelectedIndex: Int = 1
     @Published public var rulerDemoGap: Int = 12
 
-    // Hover & status feedback
+    // Hover & transient UI feedback
     @Published public var hoveredTab: SettingsTab? = nil
     @Published public var hoveredStyle: SwitcherStyle? = nil
+    @Published public var hoveredBentoId: String? = nil
     @Published public var statusMessage: String? = nil
+    @Published public var copiedBuildInfo: Bool = false
 
     // Exceptions selection
     @Published public var selectedExceptionId: String = "com.apple.finder"
@@ -136,6 +134,13 @@ public final class SettingsUIState: ObservableObject {
             if self?.statusMessage == message {
                 self?.statusMessage = nil
             }
+        }
+    }
+
+    public func flashCopiedBuild() {
+        copiedBuildInfo = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.8) { [weak self] in
+            self?.copiedBuildInfo = false
         }
     }
 
@@ -172,20 +177,101 @@ public final class SettingsUIState: ObservableObject {
     }
 }
 
-// MARK: - Native Sidebar Vibrancy
+// MARK: - Full-Bleed Native Liquid Glass Backdrops
 
-private struct SidebarVibrancyView: NSViewRepresentable {
+private struct SidebarGlassBackdrop: NSViewRepresentable {
+    var material: NSVisualEffectView.Material = .sidebar
+
     func makeNSView(context: Context) -> NSVisualEffectView {
         let view = NSVisualEffectView()
-        view.material = .sidebar
+        view.material = material
         view.blendingMode = .behindWindow
-        view.state = .followsWindowActiveState
+        view.state = .active
         return view
     }
 
     func updateNSView(_ nsView: NSVisualEffectView, context: Context) {
-        nsView.material = .sidebar
+        nsView.material = material
         nsView.blendingMode = .behindWindow
+        nsView.state = .active
+    }
+}
+
+private struct DetailSheetBackdrop: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSVisualEffectView {
+        let view = NSVisualEffectView()
+        view.material = .windowBackground
+        view.blendingMode = .behindWindow
+        view.state = .active
+        return view
+    }
+
+    func updateNSView(_ nsView: NSVisualEffectView, context: Context) {
+        nsView.material = .windowBackground
+        nsView.blendingMode = .behindWindow
+        nsView.state = .active
+    }
+}
+
+// MARK: - SwiftUI Liquid Glass Effect Helpers (macOS 26+ Native, Fallback on 14–15)
+
+private struct LiquidGlassShapeModifier<S: InsettableShape>: ViewModifier {
+    let shape: S
+    let tint: Color?
+    let interactive: Bool
+    let fallbackFill: Color
+    let specularStrokeOpacity: Double
+
+    @available(macOS 26.0, *)
+    private func buildGlass() -> Glass {
+        var glass = Glass.regular
+        if let tint { glass = glass.tint(tint) }
+        if interactive { glass = glass.interactive() }
+        return glass
+    }
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if #available(macOS 26.0, *) {
+            content
+                .glassEffect(buildGlass(), in: shape)
+        } else {
+            content
+                .background(shape.fill(fallbackFill))
+                .overlay(
+                    shape.strokeBorder(
+                        LinearGradient(
+                            colors: [
+                                Color.white.opacity(specularStrokeOpacity),
+                                Color.white.opacity(specularStrokeOpacity * 0.25)
+                            ],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        ),
+                        lineWidth: 0.8
+                    )
+                )
+        }
+    }
+}
+
+private extension View {
+    func applyLiquidGlass<S: InsettableShape>(
+        in shape: S,
+        tint: Color? = nil,
+        interactive: Bool = false,
+        fallbackFill: Color = Color.white.opacity(0.65),
+        specularOpacity: Double = 0.55
+    ) -> some View {
+        self.modifier(
+            LiquidGlassShapeModifier(
+                shape: shape,
+                tint: tint,
+                interactive: interactive,
+                fallbackFill: fallbackFill,
+                specularStrokeOpacity: specularOpacity
+            )
+        )
     }
 }
 
@@ -198,31 +284,40 @@ public struct SettingsView: View {
     @ObservedObject private var uiState = SettingsUIState.shared
     @Environment(\.colorScheme) private var colorScheme
 
-    private let sidebarBlue = Color(red: 0.0, green: 0.439, blue: 0.878) // #0070E0 — 4.8:1 white contrast
+    private let accentBlue = Color(red: 0.039, green: 0.518, blue: 1.0)
 
-    // Pure macOS Sheet Palette (crisp white sheet + soft cool-neutral grouped cards)
-    private var sheetBackground: Color {
+    private var sheetTintOverlay: Color {
         colorScheme == .dark
-            ? Color(red: 0.114, green: 0.114, blue: 0.122)
-            : Color.white
+            ? Color(red: 0.11, green: 0.11, blue: 0.125).opacity(0.84)
+            : Color(white: 0.99).opacity(0.88)
     }
 
-    private var groupSurface: Color {
+    private var glowingCardFill: Color {
         colorScheme == .dark
-            ? Color(red: 0.157, green: 0.157, blue: 0.169)
-            : Color(red: 0.965, green: 0.965, blue: 0.973)
+            ? Color.white.opacity(0.065)
+            : Color.white.opacity(0.76)
     }
 
-    private var groupHairline: Color {
+    private var cardBorderGradient: LinearGradient {
+        LinearGradient(
+            colors: colorScheme == .dark
+                ? [Color.white.opacity(0.18), Color.white.opacity(0.05)]
+                : [Color.white.opacity(0.95), Color.black.opacity(0.06)],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+    }
+
+    private var cardGlowShadow: Color {
+        colorScheme == .dark
+            ? Color.black.opacity(0.35)
+            : Color.black.opacity(0.055)
+    }
+
+    private var innerDividerColor: Color {
         colorScheme == .dark
             ? Color.white.opacity(0.08)
-            : Color.black.opacity(0.065)
-    }
-
-    private var controlSurface: Color {
-        colorScheme == .dark
-            ? Color.white.opacity(0.10)
-            : Color(red: 0.914, green: 0.914, blue: 0.925)
+            : Color.black.opacity(0.06)
     }
 
     public init() {}
@@ -230,22 +325,32 @@ public struct SettingsView: View {
     public var body: some View {
         HStack(spacing: 0) {
             sidebarView
-                .frame(width: 214)
+                .frame(width: 218)
 
             Rectangle()
-                .fill(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.085))
+                .fill(colorScheme == .dark ? Color.white.opacity(0.09) : Color.black.opacity(0.07))
                 .frame(width: 1)
+                .ignoresSafeArea(.all)
 
-            VStack(spacing: 0) {
-                inlineTopBar
+            ZStack(alignment: .top) {
+                DetailSheetBackdrop()
+                    .ignoresSafeArea(.all)
 
-                detailContent
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                sheetTintOverlay
+                    .ignoresSafeArea(.all)
+
+                VStack(spacing: 0) {
+                    inlineTopBar
+
+                    detailContent
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
             }
-            .background(sheetBackground)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(minWidth: 780, minHeight: 560)
-        .frame(width: 840, height: 620)
+        .frame(width: 850, height: 620)
+        .ignoresSafeArea(.all)
         .preferredColorScheme(
             settings.themeMode == .light ? .light :
             (settings.themeMode == .dark ? .dark : nil)
@@ -259,18 +364,29 @@ public struct SettingsView: View {
         }
     }
 
-    // MARK: - Sidebar Navigation
+    // MARK: - Full-Bleed Liquid Glass Sidebar
 
     private var sidebarView: some View {
         ZStack {
-            SidebarVibrancyView()
+            SidebarGlassBackdrop()
+                .ignoresSafeArea(.all)
+
+            // Subtle top-to-bottom pearlescent glass veil extending behind traffic lights
+            LinearGradient(
+                colors: colorScheme == .dark
+                    ? [Color.white.opacity(0.03), Color.clear]
+                    : [Color.white.opacity(0.28), Color.white.opacity(0.10)],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .ignoresSafeArea(.all)
 
             VStack(spacing: 0) {
-                // Leave room for window traffic lights
-                Spacer().frame(height: 36)
+                // Headroom purely for traffic light controls — NO opaque bar
+                Spacer().frame(height: 44)
 
-                // Pill Search Field
-                HStack(spacing: 6) {
+                // Liquid Glass Capsule Search Input
+                HStack(spacing: 7) {
                     Image(systemName: "magnifyingglass")
                         .font(.system(size: 12, weight: .medium))
                         .foregroundColor(.secondary)
@@ -283,25 +399,23 @@ public struct SettingsView: View {
                         Button(action: { uiState.searchQuery = "" }) {
                             Image(systemName: "xmark.circle.fill")
                                 .font(.system(size: 12))
-                                .foregroundColor(.secondary.opacity(0.7))
+                                .foregroundColor(.secondary.opacity(0.75))
                         }
                         .buttonStyle(.plain)
                     }
                 }
-                .padding(.horizontal, 10)
-                .frame(height: 28)
-                .background(
-                    Capsule()
-                        .fill(colorScheme == .dark ? Color.white.opacity(0.08) : Color.black.opacity(0.05))
+                .padding(.horizontal, 11)
+                .frame(height: 30)
+                .applyLiquidGlass(
+                    in: Capsule(),
+                    interactive: true,
+                    fallbackFill: colorScheme == .dark ? Color.white.opacity(0.09) : Color.white.opacity(0.55)
                 )
-                .overlay(
-                    Capsule()
-                        .stroke(colorScheme == .dark ? Color.white.opacity(0.10) : Color.black.opacity(0.08), lineWidth: 0.75)
-                )
+                .shadow(color: Color.black.opacity(colorScheme == .dark ? 0.25 : 0.05), radius: 6, y: 2)
                 .padding(.horizontal, 12)
                 .padding(.bottom, 12)
 
-                // Navigation Groups
+                // Sidebar Items
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(alignment: .leading, spacing: 2) {
                         ForEach(SettingsTab.allCases.filter { $0.groupIndex == 0 }) { tab in
@@ -320,13 +434,13 @@ public struct SettingsView: View {
                             sidebarRow(tab: tab)
                         }
                     }
-                    .padding(.horizontal, 8)
+                    .padding(.horizontal, 10)
                     .padding(.bottom, 12)
                 }
 
                 Spacer(minLength: 0)
 
-                // Signature Progressive-Disclosure Bottom Bar
+                // Show Details Progressive Disclosure Toggle
                 HStack(spacing: 8) {
                     Text("Show Details")
                         .font(.system(size: 12, weight: .regular))
@@ -339,17 +453,18 @@ public struct SettingsView: View {
                         .controlSize(.mini)
                         .labelsHidden()
                 }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 12)
+                .padding(.horizontal, 16)
+                .padding(.bottom, 14)
+                .padding(.top, 8)
             }
         }
     }
 
     private var sidebarDivider: some View {
         Rectangle()
-            .fill(colorScheme == .dark ? Color.white.opacity(0.07) : Color.black.opacity(0.065))
+            .fill(colorScheme == .dark ? Color.white.opacity(0.07) : Color.black.opacity(0.06))
             .frame(height: 1)
-            .padding(.horizontal, 10)
+            .padding(.horizontal, 8)
             .padding(.vertical, 6)
     }
 
@@ -366,33 +481,45 @@ public struct SettingsView: View {
                 SquircleBadge(
                     symbol: tab.icon,
                     color: tab.badgeColor,
-                    isInvertedOnBlueSelection: isSelected && tab.isBlueBadge,
-                    showSelectionRim: isSelected && !tab.isBlueBadge,
                     size: 20,
-                    cornerRadius: 5,
+                    cornerRadius: 5.5,
                     symbolSize: 10.5
                 )
 
                 Text(tab.rawValue)
-                    .font(.system(size: 13, weight: isSelected ? .medium : .regular))
-                    .foregroundColor(isSelected ? .white : .primary)
+                    .font(.system(size: 13, weight: isSelected ? .semibold : .regular))
+                    .foregroundColor(.primary)
                     .lineLimit(1)
 
                 Spacer(minLength: 0)
 
                 if tab == .privacy && (!permissions.hasAccessibility || !permissions.hasScreenRecording) {
                     Circle()
-                        .fill(isSelected ? Color.white : Color.orange)
+                        .fill(Color.orange)
                         .frame(width: 6, height: 6)
                 }
             }
-            .padding(.horizontal, 8)
-            .frame(height: 29)
+            .padding(.horizontal, 9)
+            .frame(height: 30)
             .background(
-                RoundedRectangle(cornerRadius: 6.5, style: .continuous)
-                    .fill(isSelected ? sidebarBlue : (isHovered ? Color.primary.opacity(0.05) : Color.clear))
+                Group {
+                    if isSelected {
+                        RoundedRectangle(cornerRadius: 9, style: .continuous)
+                            .fill(Color.clear)
+                            .applyLiquidGlass(
+                                in: RoundedRectangle(cornerRadius: 9, style: .continuous),
+                                tint: accentBlue.opacity(0.16),
+                                interactive: true,
+                                fallbackFill: colorScheme == .dark ? Color.white.opacity(0.16) : Color.white.opacity(0.75)
+                            )
+                            .shadow(color: Color.black.opacity(colorScheme == .dark ? 0.22 : 0.05), radius: 5, y: 1.5)
+                    } else if isHovered {
+                        RoundedRectangle(cornerRadius: 9, style: .continuous)
+                            .fill(Color.primary.opacity(0.05))
+                    }
+                }
             )
-            .contentShape(RoundedRectangle(cornerRadius: 6.5, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
         }
         .buttonStyle(.plain)
         .onHover { hovering in
@@ -400,7 +527,7 @@ public struct SettingsView: View {
         }
     }
 
-    // MARK: - Calm Inline Top Bar
+    // MARK: - Seamless Inline Header
 
     private var inlineTopBar: some View {
         let trimmedQuery = uiState.searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -413,15 +540,7 @@ public struct SettingsView: View {
             Spacer()
 
             if !trimmedQuery.isEmpty {
-                Button("Clear search") {
-                    uiState.searchQuery = ""
-                }
-                .buttonStyle(.plain)
-                .font(.system(size: 12, weight: .medium))
-                .foregroundColor(.secondary)
-                .padding(.horizontal, 10)
-                .frame(height: 24)
-                .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(controlSurface))
+                glassPillButton("Clear search", action: { uiState.searchQuery = "" })
             } else if uiState.selectedTab == .screenshots {
                 Button(action: { ScreenshotCoordinator.shared.startAreaCapture() }) {
                     HStack(spacing: 5) {
@@ -430,10 +549,16 @@ public struct SettingsView: View {
                         Text("Take Screenshot")
                             .font(.system(size: 12, weight: .medium))
                     }
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 11)
-                    .frame(height: 25)
-                    .background(RoundedRectangle(cornerRadius: 6.5, style: .continuous).fill(sidebarBlue))
+                    .foregroundColor(.primary)
+                    .padding(.horizontal, 12)
+                    .frame(height: 28)
+                    .applyLiquidGlass(
+                        in: Capsule(),
+                        tint: accentBlue.opacity(0.22),
+                        interactive: true,
+                        fallbackFill: Color.white.opacity(0.85)
+                    )
+                    .shadow(color: cardGlowShadow, radius: 6, y: 2)
                 }
                 .buttonStyle(.plain)
             } else if uiState.selectedTab == .apps {
@@ -445,16 +570,17 @@ public struct SettingsView: View {
                             .font(.system(size: 12, weight: .medium))
                     }
                     .foregroundColor(.primary)
-                    .padding(.horizontal, 10)
-                    .frame(height: 25)
-                    .background(RoundedRectangle(cornerRadius: 6.5, style: .continuous).fill(controlSurface))
-                    .overlay(RoundedRectangle(cornerRadius: 6.5, style: .continuous).stroke(groupHairline, lineWidth: 0.75))
+                    .padding(.horizontal, 12)
+                    .frame(height: 28)
+                    .applyLiquidGlass(in: Capsule(), interactive: true, fallbackFill: glowingCardFill)
+                    .shadow(color: cardGlowShadow, radius: 6, y: 2)
                 }
                 .buttonStyle(.plain)
             }
         }
-        .padding(.horizontal, 24)
-        .frame(height: 44)
+        .padding(.horizontal, 26)
+        .padding(.top, 14)
+        .padding(.bottom, 10)
     }
 
     // MARK: - Content Routing
@@ -465,15 +591,15 @@ public struct SettingsView: View {
         if !trimmedQuery.isEmpty {
             ScrollView(.vertical, showsIndicators: true) {
                 searchResultsPane(query: trimmedQuery)
-                    .padding(.horizontal, 24)
+                    .padding(.horizontal, 26)
                     .padding(.top, 4)
-                    .padding(.bottom, 24)
+                    .padding(.bottom, 26)
             }
         } else if uiState.selectedTab == .apps {
             appsPane
-                .padding(.horizontal, 24)
+                .padding(.horizontal, 26)
                 .padding(.top, 4)
-                .padding(.bottom, 24)
+                .padding(.bottom, 26)
         } else {
             ScrollView(.vertical, showsIndicators: true) {
                 Group {
@@ -488,9 +614,9 @@ public struct SettingsView: View {
                     case .about: aboutPane
                     }
                 }
-                .padding(.horizontal, 24)
+                .padding(.horizontal, 26)
                 .padding(.top, 4)
-                .padding(.bottom, 24)
+                .padding(.bottom, 26)
             }
         }
     }
@@ -504,14 +630,14 @@ public struct SettingsView: View {
             sectionHeading("\(matches.count) \(matches.count == 1 ? "result" : "results") for \"\(query)\"")
 
             if matches.isEmpty {
-                formCard {
+                glassCard {
                     VStack(spacing: 8) {
                         Image(systemName: "magnifyingglass")
                             .font(.system(size: 24, weight: .light))
                             .foregroundColor(.secondary)
                         Text("No matching settings")
                             .font(.system(size: 13.5, weight: .semibold))
-                        Text("Try \"haptic\", \"cards\", \"ruler\", \"backup\", or \"shortcuts\"")
+                        Text("Try \"haptic\", \"cards\", \"ruler\", \"backup\", or \"about\"")
                             .font(.system(size: 11.5))
                             .foregroundColor(.secondary)
                     }
@@ -519,7 +645,7 @@ public struct SettingsView: View {
                     .padding(.vertical, 32)
                 }
             } else {
-                formCard {
+                glassCard {
                     VStack(spacing: 0) {
                         ForEach(Array(matches.enumerated()), id: \.element.id) { index, item in
                             Button(action: {
@@ -557,14 +683,14 @@ public struct SettingsView: View {
                                         .font(.system(size: 10.5, weight: .semibold))
                                         .foregroundColor(.secondary.opacity(0.6))
                                 }
-                                .padding(.horizontal, 14)
-                                .padding(.vertical, 10)
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 11)
                                 .contentShape(Rectangle())
                             }
                             .buttonStyle(.plain)
 
                             if index < matches.count - 1 {
-                                rowDivider(leading: 48)
+                                rowDivider(leading: 50)
                             }
                         }
                     }
@@ -580,7 +706,7 @@ public struct SettingsView: View {
             VStack(alignment: .leading, spacing: 8) {
                 sectionHeading("Capture shortcuts")
 
-                formCard {
+                glassCard {
                     VStack(spacing: 0) {
                         shortcutRow(
                             title: "Area & window capture",
@@ -619,7 +745,7 @@ public struct SettingsView: View {
             VStack(alignment: .leading, spacing: 8) {
                 sectionHeading("Workflow")
 
-                formCard {
+                glassCard {
                     VStack(spacing: 0) {
                         toggleRow(
                             title: "Auto-open Designer Studio",
@@ -653,7 +779,7 @@ public struct SettingsView: View {
 
             Spacer(minLength: 8)
 
-            compactActionButton("Try", action: onTry)
+            glassPillButton("Try", action: onTry)
 
             ShortcutRecorderField(
                 targetId: targetId,
@@ -661,11 +787,11 @@ public struct SettingsView: View {
                 defaultCombination: defaultCombo
             )
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 11)
     }
 
-    // MARK: - 2. Designer Tools Pane (With Interactive Caliper & Grid Stage)
+    // MARK: - 2. Designer Tools Pane
 
     private var designerToolsPane: some View {
         VStack(alignment: .leading, spacing: 20) {
@@ -674,7 +800,7 @@ public struct SettingsView: View {
             VStack(alignment: .leading, spacing: 8) {
                 sectionHeading("Measurement & snapping")
 
-                formCard {
+                glassCard {
                     VStack(spacing: 0) {
                         toggleRow(
                             title: "Smart distance & edge snapping",
@@ -698,8 +824,8 @@ public struct SettingsView: View {
                             .pickerStyle(.segmented)
                             .frame(width: 168)
                         }
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 10)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 11)
                     }
                 }
             }
@@ -707,7 +833,7 @@ public struct SettingsView: View {
             VStack(alignment: .leading, spacing: 8) {
                 sectionHeading("Canvas shortcuts")
 
-                formCard {
+                glassCard {
                     VStack(spacing: 0) {
                         keycapRow(title: "Select & move", subtitle: "Drag objects, handles, and resize bounds", key: "V")
                         rowDivider()
@@ -733,129 +859,120 @@ public struct SettingsView: View {
         let isOffGrid = isAuditEnabled && (gap % auditUnit != 0)
         let caliperColor: Color = isOffGrid
             ? Color(red: 1.0, green: 0.62, blue: 0.04)
-            : Color(red: 0.039, green: 0.518, blue: 1.0)
+            : accentBlue
 
-        return VStack(spacing: 0) {
-            ZStack {
-                Color(red: 0.118, green: 0.122, blue: 0.133)
+        return ZStack {
+            Color(red: 0.114, green: 0.118, blue: 0.129)
 
-                // Subtle drafting dot grid
-                Canvas { context, size in
-                    let step: CGFloat = 12
-                    var x: CGFloat = step
-                    while x < size.width {
-                        var y: CGFloat = step
-                        while y < size.height {
-                            context.fill(
-                                Path(ellipseIn: CGRect(x: x - 0.6, y: y - 0.6, width: 1.2, height: 1.2)),
-                                with: .color(.white.opacity(0.08))
-                            )
-                            y += step
-                        }
-                        x += step
-                    }
-                }
-
-                // UI Specimen + Live Caliper Readout
-                VStack(spacing: 10) {
-                    HStack(spacing: 0) {
-                        Text("Save Changes")
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundColor(.white)
-                            .padding(.horizontal, 14)
-                            .frame(height: 30)
-                            .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(Color(red: 0.039, green: 0.518, blue: 1.0)))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 7, style: .continuous)
-                                    .stroke(settings.enableSmartDistance ? caliperColor.opacity(0.85) : Color.clear, lineWidth: 1)
-                            )
-
-                        // Exact pixel-accurate edge-to-edge caliper
-                        ZStack {
-                            if settings.enableSmartDistance {
-                                Rectangle()
-                                    .fill(caliperColor)
-                                    .frame(width: CGFloat(gap), height: 1.5)
-
-                                HStack {
-                                    Rectangle().fill(caliperColor).frame(width: 1.5, height: 14)
-                                    Spacer()
-                                    Rectangle().fill(caliperColor).frame(width: 1.5, height: 14)
-                                }
-                                .frame(width: CGFloat(gap))
-                            }
-                        }
-                        .frame(width: CGFloat(gap), height: 30)
-
-                        Text("Cancel")
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundColor(.white.opacity(0.9))
-                            .padding(.horizontal, 14)
-                            .frame(height: 30)
-                            .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(Color.white.opacity(0.11)))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 7, style: .continuous)
-                                    .stroke(settings.enableSmartDistance ? caliperColor.opacity(0.85) : Color.white.opacity(0.14), lineWidth: 0.8)
-                            )
-                    }
-
-                    // Caliper readout + status
-                    HStack(spacing: 6) {
-                        Text("\(gap) px")
-                            .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                            .foregroundColor(.white)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 3)
-                            .background(Capsule().fill(caliperColor))
-
-                        Text(
-                            !settings.enableSmartDistance
-                                ? "Edge snapping paused"
-                                : (isOffGrid
-                                    ? "Off \(auditUnit) px grid"
-                                    : (isAuditEnabled ? "Aligned to \(auditUnit) px grid" : "Grid audit off"))
+            Canvas { context, size in
+                let step: CGFloat = 12
+                var x: CGFloat = step
+                while x < size.width {
+                    var y: CGFloat = step
+                    while y < size.height {
+                        context.fill(
+                            Path(ellipseIn: CGRect(x: x - 0.6, y: y - 0.6, width: 1.2, height: 1.2)),
+                            with: .color(.white.opacity(0.08))
                         )
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundColor(.white.opacity(0.75))
+                        y += step
                     }
-                }
-
-                // Bottom-right interactive spacing switcher
-                VStack {
-                    Spacer()
-                    HStack {
-                        Text("Interactive caliper preview")
-                            .font(.system(size: 10.5, weight: .medium))
-                            .foregroundColor(.white.opacity(0.45))
-                        Spacer()
-                        HStack(spacing: 4) {
-                            ForEach([12, 14, 16, 24], id: \.self) { testGap in
-                                Button(action: { uiState.rulerDemoGap = testGap }) {
-                                    Text("\(testGap)")
-                                        .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                                        .foregroundColor(uiState.rulerDemoGap == testGap ? .black : .white.opacity(0.75))
-                                        .padding(.horizontal, 7)
-                                        .frame(height: 20)
-                                        .background(
-                                            RoundedRectangle(cornerRadius: 4.5, style: .continuous)
-                                                .fill(uiState.rulerDemoGap == testGap ? Color.white : Color.white.opacity(0.10))
-                                        )
-                                }
-                                .buttonStyle(.plain)
-                            }
-                        }
-                    }
-                    .padding(.horizontal, 12)
-                    .padding(.bottom, 8)
+                    x += step
                 }
             }
-            .frame(height: 124)
-            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .stroke(groupHairline, lineWidth: 0.75)
-            )
+
+            VStack(spacing: 10) {
+                HStack(spacing: 0) {
+                    Text("Save Changes")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 14)
+                        .frame(height: 30)
+                        .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(accentBlue))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                .stroke(settings.enableSmartDistance ? caliperColor.opacity(0.85) : Color.clear, lineWidth: 1)
+                        )
+
+                    ZStack {
+                        if settings.enableSmartDistance {
+                            Rectangle().fill(caliperColor).frame(width: CGFloat(gap), height: 1.5)
+                            HStack {
+                                Rectangle().fill(caliperColor).frame(width: 1.5, height: 14)
+                                Spacer()
+                                Rectangle().fill(caliperColor).frame(width: 1.5, height: 14)
+                            }
+                            .frame(width: CGFloat(gap))
+                        }
+                    }
+                    .frame(width: CGFloat(gap), height: 30)
+
+                    Text("Cancel")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(.white.opacity(0.9))
+                        .padding(.horizontal, 14)
+                        .frame(height: 30)
+                        .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(Color.white.opacity(0.11)))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                .stroke(settings.enableSmartDistance ? caliperColor.opacity(0.85) : Color.white.opacity(0.14), lineWidth: 0.8)
+                        )
+                }
+
+                HStack(spacing: 6) {
+                    Text("\(gap) px")
+                        .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(Capsule().fill(caliperColor))
+
+                    Text(
+                        !settings.enableSmartDistance
+                            ? "Edge snapping paused"
+                            : (isOffGrid
+                                ? "Off \(auditUnit) px grid"
+                                : (isAuditEnabled ? "Aligned to \(auditUnit) px grid" : "Grid audit off"))
+                    )
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(.white.opacity(0.75))
+                }
+            }
+
+            VStack {
+                Spacer()
+                HStack {
+                    Text("Interactive caliper preview")
+                        .font(.system(size: 10.5, weight: .medium))
+                        .foregroundColor(.white.opacity(0.45))
+                    Spacer()
+                    HStack(spacing: 4) {
+                        ForEach([12, 14, 16, 24], id: \.self) { testGap in
+                            Button(action: { uiState.rulerDemoGap = testGap }) {
+                                Text("\(testGap)")
+                                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                                    .foregroundColor(uiState.rulerDemoGap == testGap ? .black : .white.opacity(0.75))
+                                    .padding(.horizontal, 7)
+                                    .frame(height: 20)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 4.5, style: .continuous)
+                                            .fill(uiState.rulerDemoGap == testGap ? Color.white : Color.white.opacity(0.10))
+                                    )
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+                .padding(.horizontal, 12)
+                .padding(.bottom, 8)
+            }
         }
+        .frame(height: 124)
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(cardBorderGradient, lineWidth: 0.8)
+        )
+        .shadow(color: cardGlowShadow, radius: 10, y: 3)
     }
 
     private func keycapRow(title: String, subtitle: String, key: String) -> some View {
@@ -865,13 +982,12 @@ public struct SettingsView: View {
             Text(key)
                 .font(.system(size: 11, weight: .semibold, design: .monospaced))
                 .foregroundColor(.primary)
-                .padding(.horizontal, 8)
-                .frame(height: 22)
-                .background(RoundedRectangle(cornerRadius: 5, style: .continuous).fill(controlSurface))
-                .overlay(RoundedRectangle(cornerRadius: 5, style: .continuous).stroke(groupHairline, lineWidth: 0.75))
+                .padding(.horizontal, 9)
+                .frame(height: 23)
+                .applyLiquidGlass(in: RoundedRectangle(cornerRadius: 6, style: .continuous), fallbackFill: Color.primary.opacity(0.06))
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 9)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
     }
 
     // MARK: - 3. Switcher Pane
@@ -897,7 +1013,7 @@ public struct SettingsView: View {
                     )
                 }
 
-                formCard {
+                glassCard {
                     VStack(spacing: 0) {
                         HStack(spacing: 12) {
                             rowLabel(
@@ -912,8 +1028,8 @@ public struct SettingsView: View {
                             .pickerStyle(.segmented)
                             .frame(width: 204)
                         }
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 10)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 11)
 
                         rowDivider()
 
@@ -929,7 +1045,7 @@ public struct SettingsView: View {
             VStack(alignment: .leading, spacing: 8) {
                 sectionHeading("Scope & visibility")
 
-                formCard {
+                glassCard {
                     VStack(spacing: 0) {
                         menuRow(
                             title: "Applications",
@@ -985,7 +1101,7 @@ public struct SettingsView: View {
             VStack(alignment: .leading, spacing: 8) {
                 sectionHeading("While switcher is open")
 
-                formCard {
+                glassCard {
                     HStack(spacing: 8) {
                         hotkeyChip(keys: "↑ ↓ ← →", label: "Navigate")
                         hotkeyChip(keys: "Return", label: "Focus")
@@ -1015,7 +1131,7 @@ public struct SettingsView: View {
                         .foregroundColor(isSelected ? .white : .primary)
                         .padding(.horizontal, 8)
                         .frame(height: 22)
-                        .background(RoundedRectangle(cornerRadius: 5.5, style: .continuous).fill(isSelected ? accent : controlSurface))
+                        .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(isSelected ? accent : Color.primary.opacity(0.08)))
 
                     Spacer()
 
@@ -1038,15 +1154,20 @@ public struct SettingsView: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
-            .padding(12)
+            .padding(14)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(groupSurface)
-            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .stroke(isSelected ? accent : groupHairline, lineWidth: isSelected ? 1.75 : 0.75)
+            .applyLiquidGlass(
+                in: RoundedRectangle(cornerRadius: 14, style: .continuous),
+                tint: isSelected ? accent.opacity(0.14) : nil,
+                interactive: true,
+                fallbackFill: glowingCardFill
             )
-            .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .strokeBorder(isSelected ? accent : Color.clear, lineWidth: 1.5)
+            )
+            .shadow(color: cardGlowShadow, radius: 10, y: 3)
+            .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         }
         .buttonStyle(.plain)
     }
@@ -1058,7 +1179,7 @@ public struct SettingsView: View {
                 .foregroundColor(.primary)
                 .padding(.horizontal, 7)
                 .frame(height: 22)
-                .background(RoundedRectangle(cornerRadius: 5, style: .continuous).fill(controlSurface))
+                .applyLiquidGlass(in: RoundedRectangle(cornerRadius: 5.5, style: .continuous), fallbackFill: Color.primary.opacity(0.07))
             Text(label)
                 .font(.system(size: 10.5))
                 .foregroundColor(.secondary)
@@ -1067,14 +1188,12 @@ public struct SettingsView: View {
         .frame(maxWidth: .infinity)
     }
 
-    // MARK: - 4. Appearance Pane (Interactive Live Desktop Stage + Options)
+    // MARK: - 4. Appearance Pane
 
     private var appearancePane: some View {
         VStack(alignment: .leading, spacing: 20) {
-            // LIVE INTERACTIVE STAGE (Product Moment)
             liveSwitcherDesktopStage
 
-            // 4-Mode Layout Picker
             VStack(alignment: .leading, spacing: 8) {
                 sectionHeading("HUD layout style")
 
@@ -1094,11 +1213,10 @@ public struct SettingsView: View {
                 }
             }
 
-            // Sizing, Theme & Placement
             VStack(alignment: .leading, spacing: 8) {
                 sectionHeading("Sizing & placement")
 
-                formCard {
+                glassCard {
                     VStack(spacing: 0) {
                         HStack {
                             rowLabel(title: "Tile size", subtitle: "Scale window previews, icon strips, and card tiles.")
@@ -1111,8 +1229,8 @@ public struct SettingsView: View {
                             .pickerStyle(.segmented)
                             .frame(width: 204)
                         }
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 10)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 11)
 
                         rowDivider()
 
@@ -1127,8 +1245,8 @@ public struct SettingsView: View {
                             .pickerStyle(.segmented)
                             .frame(width: 204)
                         }
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 10)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 11)
 
                         rowDivider()
 
@@ -1142,8 +1260,8 @@ public struct SettingsView: View {
                             }
                             .frame(width: 190)
                         }
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 10)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 11)
 
                         rowDivider()
 
@@ -1156,11 +1274,10 @@ public struct SettingsView: View {
                 }
             }
 
-            // Surface & Optics
             VStack(alignment: .leading, spacing: 8) {
                 sectionHeading("Optics & accent")
 
-                formCard {
+                glassCard {
                     VStack(spacing: 0) {
                         HStack {
                             rowLabel(title: "Accent color", subtitle: "Selection highlight ring and active row fill.")
@@ -1179,8 +1296,8 @@ public struct SettingsView: View {
                                     .frame(width: 70)
                             }
                         }
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 10)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 11)
 
                         rowDivider()
 
@@ -1190,8 +1307,8 @@ public struct SettingsView: View {
                             Slider(value: $settings.hudCornerRadius, in: 16...32, step: 2)
                                 .frame(width: 184)
                         }
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 10)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 11)
 
                         rowDivider()
 
@@ -1201,8 +1318,8 @@ public struct SettingsView: View {
                             Slider(value: $settings.borderWidth, in: 0.5...3.0, step: 0.5)
                                 .frame(width: 184)
                         }
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 10)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 11)
 
                         rowDivider()
 
@@ -1217,15 +1334,14 @@ public struct SettingsView: View {
                             .pickerStyle(.segmented)
                             .frame(width: 204)
                         }
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 10)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 11)
                     }
                 }
             }
         }
     }
 
-    // Live Interactive macOS Desktop Stage for Appearance
     private var liveSwitcherDesktopStage: some View {
         let resolvedDark: Bool = {
             switch settings.themeMode {
@@ -1242,23 +1358,21 @@ public struct SettingsView: View {
             ("Mail", "Release Notes", "com.apple.mail"),
             ("Notes", "Architecture", "com.apple.Notes")
         ]
-        let hudBg = resolvedDark ? Color(white: 0.14).opacity(0.86) : Color(white: 0.96).opacity(0.88)
+        let hudBg = resolvedDark ? Color(white: 0.14).opacity(0.82) : Color(white: 0.96).opacity(0.84)
         let ink = resolvedDark ? Color.white : Color(white: 0.10)
         let subInk = resolvedDark ? Color.white.opacity(0.65) : Color.black.opacity(0.55)
         let shadowRadius: CGFloat = settings.shadowDepth == "Floating Deep" ? 18 : (settings.shadowDepth == "Subtle Depth" ? 4 : 11)
         let radius = CGFloat(min(settings.hudCornerRadius, 24)) * 0.85
 
         return ZStack(alignment: .top) {
-            // Calm macOS Sonoma neutral aluminum/slate atmospheric wallpaper
             LinearGradient(
                 colors: resolvedDark
-                    ? [Color(red: 0.14, green: 0.16, blue: 0.21), Color(red: 0.10, green: 0.11, blue: 0.15)]
-                    : [Color(red: 0.82, green: 0.86, blue: 0.91), Color(red: 0.90, green: 0.88, blue: 0.86)],
+                    ? [Color(red: 0.14, green: 0.17, blue: 0.24), Color(red: 0.09, green: 0.10, blue: 0.15)]
+                    : [Color(red: 0.78, green: 0.84, blue: 0.92), Color(red: 0.91, green: 0.89, blue: 0.87)],
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
             )
 
-            // Mini menu bar sliver
             HStack(spacing: 10) {
                 Image(systemName: "applelogo")
                     .font(.system(size: 8))
@@ -1271,9 +1385,8 @@ public struct SettingsView: View {
             .foregroundColor(ink.opacity(0.8))
             .padding(.horizontal, 12)
             .frame(height: 18)
-            .background(resolvedDark ? Color.black.opacity(0.28) : Color.white.opacity(0.45))
+            .background(resolvedDark ? Color.black.opacity(0.28) : Color.white.opacity(0.42))
 
-            // Centered Live HUD
             VStack {
                 Spacer(minLength: 20)
 
@@ -1309,9 +1422,8 @@ public struct SettingsView: View {
                         }
                         .padding(.horizontal, 16)
                         .padding(.vertical, 10)
-                        .background(hudBg)
-                        .clipShape(Capsule())
-                        .overlay(Capsule().stroke(ink.opacity(0.14), lineWidth: CGFloat(settings.borderWidth)))
+                        .applyLiquidGlass(in: Capsule(), interactive: true, fallbackFill: hudBg)
+                        .overlay(Capsule().stroke(ink.opacity(0.12), lineWidth: CGFloat(settings.borderWidth)))
 
                     case .titles:
                         VStack(spacing: 2) {
@@ -1343,16 +1455,15 @@ public struct SettingsView: View {
                                         }
                                     }
                                     .padding(.horizontal, 10)
-                                    .frame(width: 290, height: 22)
-                                    .background(RoundedRectangle(cornerRadius: 5.5, style: .continuous).fill(active ? accent : Color.clear))
+                                    .frame(width: 288, height: 22)
+                                    .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(active ? accent : Color.clear))
                                 }
                                 .buttonStyle(.plain)
                             }
                         }
                         .padding(6)
-                        .background(hudBg)
-                        .clipShape(RoundedRectangle(cornerRadius: radius * 0.7, style: .continuous))
-                        .overlay(RoundedRectangle(cornerRadius: radius * 0.7, style: .continuous).stroke(ink.opacity(0.14), lineWidth: CGFloat(settings.borderWidth)))
+                        .applyLiquidGlass(in: RoundedRectangle(cornerRadius: radius * 0.7, style: .continuous), fallbackFill: hudBg)
+                        .overlay(RoundedRectangle(cornerRadius: radius * 0.7, style: .continuous).stroke(ink.opacity(0.12), lineWidth: CGFloat(settings.borderWidth)))
 
                     case .cards:
                         LazyVGrid(columns: [GridItem(.fixed(144), spacing: 7), GridItem(.fixed(144), spacing: 7)], spacing: 7) {
@@ -1391,9 +1502,8 @@ public struct SettingsView: View {
                         }
                         .fixedSize()
                         .padding(8)
-                        .background(hudBg)
-                        .clipShape(RoundedRectangle(cornerRadius: radius * 0.72, style: .continuous))
-                        .overlay(RoundedRectangle(cornerRadius: radius * 0.72, style: .continuous).stroke(ink.opacity(0.14), lineWidth: CGFloat(settings.borderWidth)))
+                        .applyLiquidGlass(in: RoundedRectangle(cornerRadius: radius * 0.72, style: .continuous), fallbackFill: hudBg)
+                        .overlay(RoundedRectangle(cornerRadius: radius * 0.72, style: .continuous).stroke(ink.opacity(0.12), lineWidth: CGFloat(settings.borderWidth)))
 
                     case .thumbnails:
                         HStack(spacing: 8) {
@@ -1432,9 +1542,8 @@ public struct SettingsView: View {
                             }
                         }
                         .padding(10)
-                        .background(hudBg)
-                        .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
-                        .overlay(RoundedRectangle(cornerRadius: radius, style: .continuous).stroke(ink.opacity(0.14), lineWidth: CGFloat(settings.borderWidth)))
+                        .applyLiquidGlass(in: RoundedRectangle(cornerRadius: radius, style: .continuous), fallbackFill: hudBg)
+                        .overlay(RoundedRectangle(cornerRadius: radius, style: .continuous).stroke(ink.opacity(0.12), lineWidth: CGFloat(settings.borderWidth)))
                     }
                 }
                 .shadow(color: Color.black.opacity(resolvedDark ? 0.45 : 0.16), radius: shadowRadius, y: 4)
@@ -1443,8 +1552,12 @@ public struct SettingsView: View {
             }
         }
         .frame(height: 152)
-        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).stroke(groupHairline, lineWidth: 0.75))
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(cardBorderGradient, lineWidth: 0.8)
+        )
+        .shadow(color: cardGlowShadow, radius: 10, y: 3)
     }
 
     private func styleSelectorTile(style: SwitcherStyle, title: String, symbol: String) -> some View {
@@ -1468,16 +1581,18 @@ public struct SettingsView: View {
             }
             .frame(maxWidth: .infinity)
             .frame(height: 58)
-            .background(groupSurface)
-            .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 9, style: .continuous)
-                    .stroke(
-                        isSelected ? accent : (isHovered ? Color.primary.opacity(0.18) : groupHairline),
-                        lineWidth: isSelected ? 1.75 : 0.75
-                    )
+            .applyLiquidGlass(
+                in: RoundedRectangle(cornerRadius: 12, style: .continuous),
+                tint: isSelected ? accent.opacity(0.14) : nil,
+                interactive: true,
+                fallbackFill: glowingCardFill
             )
-            .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .strokeBorder(isSelected ? accent : (isHovered ? Color.primary.opacity(0.18) : Color.clear), lineWidth: isSelected ? 1.6 : 0.75)
+            )
+            .shadow(color: cardGlowShadow, radius: 8, y: 2)
+            .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         }
         .buttonStyle(.plain)
         .onHover { hovering in
@@ -1489,9 +1604,7 @@ public struct SettingsView: View {
         let color = Color(hex: hex) ?? .blue
         let isSelected = settings.customAccentColorHex.uppercased() == hex.uppercased()
 
-        return Button(action: {
-            settings.customAccentColorHex = hex
-        }) {
+        return Button(action: { settings.customAccentColorHex = hex }) {
             ZStack {
                 Circle().fill(color).frame(width: 16, height: 16)
                 if isSelected {
@@ -1506,7 +1619,7 @@ public struct SettingsView: View {
 
     private var appsPane: some View {
         HStack(alignment: .top, spacing: 14) {
-            formCard {
+            glassCard {
                 VStack(spacing: 0) {
                     ScrollView(.vertical, showsIndicators: false) {
                         VStack(spacing: 2) {
@@ -1519,13 +1632,13 @@ public struct SettingsView: View {
                                         VStack(alignment: .leading, spacing: 1) {
                                             Text(app.name)
                                                 .font(.system(size: 12.5, weight: isSelected ? .semibold : .regular))
-                                                .foregroundColor(isSelected ? .white : .primary)
+                                                .foregroundColor(.primary)
                                                 .lineLimit(1)
 
                                             if settings.showDetailsInSettings {
                                                 Text(app.ignoreShortcuts == "When in focus" ? "Pass-through" : "Switcher Rule")
                                                     .font(.system(size: 10))
-                                                    .foregroundColor(isSelected ? .white.opacity(0.82) : .secondary)
+                                                    .foregroundColor(.secondary)
                                             }
                                         }
                                         Spacer(minLength: 0)
@@ -1533,10 +1646,19 @@ public struct SettingsView: View {
                                     .padding(.horizontal, 9)
                                     .padding(.vertical, 6)
                                     .background(
-                                        RoundedRectangle(cornerRadius: 6.5, style: .continuous)
-                                            .fill(isSelected ? sidebarBlue : Color.clear)
+                                        Group {
+                                            if isSelected {
+                                                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                                    .applyLiquidGlass(
+                                                        in: RoundedRectangle(cornerRadius: 8, style: .continuous),
+                                                        tint: accentBlue.opacity(0.18),
+                                                        interactive: true,
+                                                        fallbackFill: Color.white.opacity(0.85)
+                                                    )
+                                            }
+                                        }
                                     )
-                                    .contentShape(RoundedRectangle(cornerRadius: 6.5, style: .continuous))
+                                    .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                                 }
                                 .buttonStyle(.plain)
                             }
@@ -1555,7 +1677,7 @@ public struct SettingsView: View {
                         }
                         .buttonStyle(.plain)
 
-                        Rectangle().fill(groupHairline).frame(width: 1, height: 14)
+                        Rectangle().fill(innerDividerColor).frame(width: 1, height: 14)
 
                         Button(action: removeSelectedException) {
                             Image(systemName: "minus")
@@ -1579,7 +1701,7 @@ public struct SettingsView: View {
                 let selectedApp = settings.exceptionsList[index]
 
                 VStack(alignment: .leading, spacing: 14) {
-                    formCard {
+                    glassCard {
                         HStack(spacing: 12) {
                             NativeAppIconView(bundleId: selectedApp.bundleId, size: 38)
                             VStack(alignment: .leading, spacing: 2) {
@@ -1594,7 +1716,7 @@ public struct SettingsView: View {
                         .padding(14)
                     }
 
-                    formCard {
+                    glassCard {
                         VStack(spacing: 0) {
                             HStack {
                                 rowLabel(title: "Global shortcuts", subtitle: "Bypass Window Switcher triggers when this app is frontmost.")
@@ -1608,8 +1730,8 @@ public struct SettingsView: View {
                                 }
                                 .frame(width: 168)
                             }
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 10)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 11)
 
                             rowDivider()
 
@@ -1626,15 +1748,15 @@ public struct SettingsView: View {
                                 }
                                 .frame(width: 168)
                             }
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 10)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 11)
                         }
                     }
                     Spacer()
                 }
                 .frame(maxWidth: .infinity)
             } else {
-                formCard {
+                glassCard {
                     VStack(spacing: 8) {
                         Image(systemName: "app.dashed")
                             .font(.system(size: 26, weight: .light))
@@ -1646,7 +1768,7 @@ public struct SettingsView: View {
                             .foregroundColor(.secondary)
                             .multilineTextAlignment(.center)
                             .frame(maxWidth: 260)
-                        compactActionButton("Add App…", action: chooseApplicationFromDisk)
+                        glassPillButton("Add App…", action: chooseApplicationFromDisk)
                             .padding(.top, 4)
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -1666,15 +1788,14 @@ public struct SettingsView: View {
         uiState.selectedExceptionId = settings.exceptionsList.first?.bundleId ?? ""
     }
 
-    // MARK: - 6. General Pane (Inspired by macOS Sequoia Reference: Startup, Feedback, Updates, Backup)
+    // MARK: - 6. General Pane
 
     private var generalPane: some View {
         VStack(alignment: .leading, spacing: 20) {
-            // Startup
             VStack(alignment: .leading, spacing: 8) {
                 sectionHeading("Startup")
 
-                formCard {
+                glassCard {
                     VStack(spacing: 0) {
                         toggleRow(
                             title: "Launch at login",
@@ -1701,11 +1822,10 @@ public struct SettingsView: View {
                 }
             }
 
-            // Feedback (Real macOS Haptics & Switch Audio)
             VStack(alignment: .leading, spacing: 8) {
                 sectionHeading("Feedback")
 
-                formCard {
+                glassCard {
                     VStack(spacing: 0) {
                         HStack(spacing: 12) {
                             rowLabel(
@@ -1725,8 +1845,8 @@ public struct SettingsView: View {
                             .toggleStyle(.switch)
                             .labelsHidden()
                         }
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 10)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 11)
 
                         rowDivider()
 
@@ -1753,23 +1873,19 @@ public struct SettingsView: View {
                             }
                             .frame(width: 112)
                         }
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 10)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 11)
                     }
                 }
             }
 
-            // Updates
             VStack(alignment: .leading, spacing: 8) {
                 sectionHeading("Updates")
 
-                formCard {
+                glassCard {
                     VStack(spacing: 0) {
                         HStack(spacing: 12) {
-                            rowLabel(
-                                title: "Check for updates",
-                                subtitle: updateStatusLine
-                            )
+                            rowLabel(title: "Check for updates", subtitle: updateStatusLine)
                             Spacer()
                             updateActionButton
                             Picker("", selection: $settings.updatePolicy) {
@@ -1778,8 +1894,8 @@ public struct SettingsView: View {
                             }
                             .frame(width: 116)
                         }
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 10)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 11)
 
                         rowDivider()
 
@@ -1792,11 +1908,10 @@ public struct SettingsView: View {
                 }
             }
 
-            // Backup
             VStack(alignment: .leading, spacing: 8) {
                 sectionHeading("Backup")
 
-                formCard {
+                glassCard {
                     VStack(spacing: 0) {
                         HStack {
                             rowLabel(
@@ -1804,10 +1919,10 @@ public struct SettingsView: View {
                                 subtitle: "Save all your settings to a JSON file you can back up or move to another Mac."
                             )
                             Spacer()
-                            compactActionButton("Export…", action: exportSettingsToDisk)
+                            glassPillButton("Export…", action: exportSettingsToDisk)
                         }
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 10)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 11)
 
                         rowDivider()
 
@@ -1817,10 +1932,10 @@ public struct SettingsView: View {
                                 subtitle: "Replace your current configuration from a previously exported file."
                             )
                             Spacer()
-                            compactActionButton("Import…", action: importSettingsFromDisk)
+                            glassPillButton("Import…", action: importSettingsFromDisk)
                         }
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 10)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 11)
 
                         rowDivider()
 
@@ -1830,20 +1945,20 @@ public struct SettingsView: View {
                                 subtitle: "Restore every shortcut, style, and rule back to defaults."
                             )
                             Spacer()
-                            compactActionButton("Reset…") {
+                            glassPillButton("Reset…") {
                                 settings.resetToDefaults()
                                 uiState.flashStatus("Preferences restored to factory defaults")
                             }
                         }
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 10)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 11)
                     }
                 }
 
                 if let msg = uiState.statusMessage {
                     Text(msg)
                         .font(.system(size: 11.5, weight: .medium))
-                        .foregroundColor(sidebarBlue)
+                        .foregroundColor(accentBlue)
                         .padding(.leading, 4)
                 }
             }
@@ -1877,11 +1992,11 @@ public struct SettingsView: View {
         case .checking, .downloading, .installing:
             ProgressView().controlSize(.small)
         case .available(_, _, let downloadUrl, _):
-            compactActionButton("Install") { updater.downloadAndInstall(from: downloadUrl) }
+            glassPillButton("Install") { updater.downloadAndInstall(from: downloadUrl) }
         case .readyToRelaunch:
-            compactActionButton("Relaunch") { updater.relaunch() }
+            glassPillButton("Relaunch") { updater.relaunch() }
         default:
-            compactActionButton("Check Now") { updater.checkForUpdates(userInitiated: true) }
+            glassPillButton("Check Now") { updater.checkForUpdates(userInitiated: true) }
         }
     }
 
@@ -1892,7 +2007,7 @@ public struct SettingsView: View {
             VStack(alignment: .leading, spacing: 8) {
                 sectionHeading("System permissions")
 
-                formCard {
+                glassCard {
                     VStack(spacing: 0) {
                         permissionRow(
                             title: "Accessibility",
@@ -1916,24 +2031,26 @@ public struct SettingsView: View {
             VStack(alignment: .leading, spacing: 8) {
                 sectionHeading("Data & local processing")
 
-                formCard {
-                    VStack(spacing: 0) {
-                        HStack {
-                            rowLabel(
-                                title: "On-device capture & OCR",
-                                subtitle: "All screenshots, pixel buffers, and text recognition run locally using Apple Vision and ScreenCaptureKit. Nothing leaves your Mac."
+                glassCard {
+                    HStack {
+                        rowLabel(
+                            title: "On-device capture & OCR",
+                            subtitle: "All screenshots, pixel buffers, and text recognition run locally using Apple Vision and ScreenCaptureKit. Nothing leaves your Mac."
+                        )
+                        Spacer()
+                        Text("Local Only")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundColor(Color(red: 0.16, green: 0.72, blue: 0.30))
+                            .padding(.horizontal, 10)
+                            .frame(height: 24)
+                            .applyLiquidGlass(
+                                in: Capsule(),
+                                tint: Color(red: 0.188, green: 0.820, blue: 0.345).opacity(0.16),
+                                fallbackFill: Color(red: 0.188, green: 0.820, blue: 0.345).opacity(0.14)
                             )
-                            Spacer()
-                            Text("Local Only")
-                                .font(.system(size: 11, weight: .semibold))
-                                .foregroundColor(Color(red: 0.16, green: 0.72, blue: 0.30))
-                                .padding(.horizontal, 9)
-                                .frame(height: 22)
-                                .background(Capsule().fill(Color(red: 0.188, green: 0.820, blue: 0.345).opacity(0.14)))
-                        }
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 12)
                     }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 12)
                 }
             }
         }
@@ -1952,98 +2069,197 @@ public struct SettingsView: View {
                 }
                 .foregroundColor(Color(red: 0.16, green: 0.72, blue: 0.30))
             } else {
-                Button("Grant Access", action: action)
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.small)
+                glassPillButton("Grant Access", action: action)
             }
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 11)
     }
 
-    // MARK: - 8. About Pane
+    // MARK: - 8. About Pane (Liquid Glass Showcase Inspired by Reference)
 
     private var aboutPane: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            formCard {
-                HStack(spacing: 16) {
-                    AppBrandingIcon(size: 54, cornerRadius: 12.5)
+        let buildString = "v\(updater.currentVersion) · Apple Silicon (arm64)"
 
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text("Window Switcher")
-                            .font(.system(size: 16, weight: .semibold))
-                        Text("Version \(updater.currentVersion) · Apple Silicon (arm64)")
-                            .font(.system(size: 12, design: .monospaced))
-                            .foregroundColor(.secondary)
-                        Text("Frozen-frame pixel screenshot studio and 60 FPS native window switcher for macOS.")
-                            .font(.system(size: 12))
-                            .foregroundColor(.secondary)
-                            .padding(.top, 2)
+        return VStack(spacing: 0) {
+            Spacer().frame(height: 22)
+
+            // Hero Header Block
+            HStack(alignment: .center, spacing: 26) {
+                AppBrandingIcon(size: 84, cornerRadius: 20)
+                    .shadow(color: Color.black.opacity(colorScheme == .dark ? 0.45 : 0.16), radius: 14, y: 6)
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Window Switcher")
+                        .font(.system(size: 26, weight: .bold))
+                        .foregroundColor(.primary)
+
+                    Text("Faster window switching & frozen-frame studio for macOS")
+                        .font(.system(size: 13.5))
+                        .foregroundColor(.secondary)
+
+                    HStack(spacing: 10) {
+                        Button(action: {
+                            updater.checkForUpdates(userInitiated: true)
+                        }) {
+                            HStack(spacing: 6) {
+                                Image(systemName: updater.isChecking ? "arrow.triangle.2.circlepath" : "arrow.triangle.2.circlepath")
+                                    .font(.system(size: 11.5, weight: .semibold))
+                                    .foregroundColor(.secondary)
+                                Text(updater.isChecking ? "Checking…" : "Check for Updates")
+                                    .font(.system(size: 12.5, weight: .medium))
+                                    .foregroundColor(.primary)
+                            }
+                            .padding(.horizontal, 14)
+                            .frame(height: 30)
+                            .applyLiquidGlass(
+                                in: Capsule(),
+                                interactive: true,
+                                fallbackFill: glowingCardFill
+                            )
+                            .shadow(color: cardGlowShadow, radius: 8, y: 2.5)
+                        }
+                        .buttonStyle(.plain)
+
+                        if case .upToDate(let v) = updater.status {
+                            Text("Up to date (v\(v))")
+                                .font(.system(size: 11.5, weight: .medium))
+                                .foregroundColor(Color(red: 0.16, green: 0.72, blue: 0.30))
+                        }
                     }
+                    .padding(.top, 4)
 
-                    Spacer()
+                    HStack(spacing: 8) {
+                        Text(buildString)
+                            .font(.system(size: 11.5, design: .monospaced))
+                            .foregroundColor(.secondary)
+
+                        Button(action: {
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString("Window Switcher \(buildString)", forType: .string)
+                            uiState.flashCopiedBuild()
+                        }) {
+                            Image(systemName: uiState.copiedBuildInfo ? "checkmark" : "doc.on.doc")
+                                .font(.system(size: 11))
+                                .foregroundColor(uiState.copiedBuildInfo ? accentBlue : .secondary)
+                        }
+                        .buttonStyle(.plain)
+                        .help("Copy build info")
+                    }
+                    .padding(.top, 2)
                 }
-                .padding(16)
+            }
+            .frame(maxWidth: .infinity, alignment: .center)
+
+            Spacer().frame(height: 30)
+
+            // 3 Luminous Liquid Glass Bento Action Cards
+            HStack(spacing: 14) {
+                aboutBentoCard(
+                    id: "source",
+                    symbol: "chevron.left.forwardslash.chevron.right",
+                    title: "Source Code",
+                    url: "https://github.com/TheLegend96/WindowSwitcher"
+                )
+                aboutBentoCard(
+                    id: "issue",
+                    symbol: "exclamationmark.bubble.fill",
+                    title: "Report an Issue",
+                    url: "https://github.com/TheLegend96/WindowSwitcher/issues"
+                )
+                aboutBentoCard(
+                    id: "releases",
+                    symbol: "shippingbox.fill",
+                    title: "Releases",
+                    url: "https://github.com/TheLegend96/WindowSwitcher/releases"
+                )
             }
 
-            VStack(alignment: .leading, spacing: 8) {
-                sectionHeading("Project & releases")
+            Spacer().frame(height: 28)
 
-                formCard {
-                    VStack(spacing: 0) {
-                        HStack {
-                            rowLabel(title: "GitHub Repository", subtitle: "github.com/TheLegend96/WindowSwitcher")
-                            Spacer()
-                            compactActionButton("Open") {
-                                if let url = URL(string: "https://github.com/TheLegend96/WindowSwitcher") {
-                                    NSWorkspace.shared.open(url)
-                                }
-                            }
-                        }
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 10)
+            Text("© 2026 Window Switcher")
+                .font(.system(size: 11.5))
+                .foregroundColor(.secondary.opacity(0.75))
+        }
+        .frame(maxWidth: .infinity)
+    }
 
-                        rowDivider()
+    private func aboutBentoCard(id: String, symbol: String, title: String, url: String) -> some View {
+        let isHovered = uiState.hoveredBentoId == id
 
-                        HStack {
-                            rowLabel(title: "Check for newer releases", subtitle: "Compare installed bundle against latest tagged release")
-                            Spacer()
-                            compactActionButton("Check Now") {
-                                uiState.selectedTab = .general
-                                updater.checkForUpdates(userInitiated: true)
-                            }
-                        }
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 10)
-                    }
-                }
+        return Button(action: {
+            if let target = URL(string: url) {
+                NSWorkspace.shared.open(target)
             }
+        }) {
+            VStack(alignment: .leading, spacing: 0) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(colorScheme == .dark ? Color.white.opacity(0.10) : Color.black.opacity(0.055))
+                        .frame(width: 30, height: 30)
+
+                    Image(systemName: symbol)
+                        .font(.system(size: 12.5, weight: .semibold))
+                        .foregroundColor(.secondary)
+                }
+
+                Spacer()
+
+                Text(title)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(.primary)
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(height: 94)
+            .applyLiquidGlass(
+                in: RoundedRectangle(cornerRadius: 16, style: .continuous),
+                interactive: true,
+                fallbackFill: glowingCardFill
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .strokeBorder(cardBorderGradient, lineWidth: isHovered ? 1.1 : 0.8)
+            )
+            .shadow(color: cardGlowShadow.opacity(isHovered ? 1.5 : 1.0), radius: isHovered ? 14 : 10, y: isHovered ? 5 : 3)
+            .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering in
+            uiState.hoveredBentoId = hovering ? id : (uiState.hoveredBentoId == id ? nil : uiState.hoveredBentoId)
         }
     }
 
-    // MARK: - Shared Pure Sheet Building Blocks
+    // MARK: - Shared Liquid Glass Primitives
 
     private func sectionHeading(_ title: String) -> some View {
         Text(title)
             .font(.system(size: 13, weight: .semibold))
             .foregroundColor(.primary)
-            .padding(.leading, 2)
+            .padding(.leading, 4)
     }
 
-    private func formCard<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+    private func glassCard<Content: View>(@ViewBuilder content: () -> Content) -> some View {
         content()
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(groupSurface)
-            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .stroke(groupHairline, lineWidth: 0.75)
+            .background(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(glowingCardFill)
             )
+            .applyLiquidGlass(
+                in: RoundedRectangle(cornerRadius: 14, style: .continuous),
+                fallbackFill: glowingCardFill
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .strokeBorder(cardBorderGradient, lineWidth: 0.75)
+            )
+            .shadow(color: cardGlowShadow, radius: 10, y: 3)
     }
 
-    private func rowDivider(leading: CGFloat = 14) -> some View {
+    private func rowDivider(leading: CGFloat = 16) -> some View {
         Rectangle()
-            .fill(groupHairline)
+            .fill(innerDividerColor)
             .frame(height: 1)
             .padding(.leading, leading)
     }
@@ -2071,8 +2287,8 @@ public struct SettingsView: View {
                 .toggleStyle(.switch)
                 .labelsHidden()
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 11)
     }
 
     private func menuRow(title: String, subtitle: String, selection: Binding<String>, options: [(label: String, tag: String)]) -> some View {
@@ -2086,25 +2302,23 @@ public struct SettingsView: View {
             }
             .frame(width: 150)
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 11)
     }
 
-    private func compactActionButton(_ title: String, action: @escaping () -> Void) -> some View {
+    private func glassPillButton(_ title: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(title)
                 .font(.system(size: 12, weight: .medium))
                 .foregroundColor(.primary)
-                .padding(.horizontal, 11)
-                .frame(height: 24)
-                .background(
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        .fill(controlSurface)
+                .padding(.horizontal, 12)
+                .frame(height: 25)
+                .applyLiquidGlass(
+                    in: Capsule(),
+                    interactive: true,
+                    fallbackFill: glowingCardFill
                 )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        .stroke(groupHairline, lineWidth: 0.75)
-                )
+                .shadow(color: cardGlowShadow, radius: 5, y: 1.5)
         }
         .buttonStyle(.plain)
     }
@@ -2177,38 +2391,27 @@ public struct SettingsView: View {
 private struct SquircleBadge: View {
     let symbol: String
     let color: Color
-    var isInvertedOnBlueSelection: Bool = false
-    var showSelectionRim: Bool = false
     var size: CGFloat = 20
-    var cornerRadius: CGFloat = 5
+    var cornerRadius: CGFloat = 5.5
     var symbolSize: CGFloat = 10.5
 
     var body: some View {
         ZStack {
             RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                 .fill(
-                    isInvertedOnBlueSelection
-                        ? AnyShapeStyle(Color.white)
-                        : AnyShapeStyle(
-                            LinearGradient(
-                                colors: [color.opacity(0.92), color],
-                                startPoint: .top,
-                                endPoint: .bottom
-                            )
-                        )
+                    LinearGradient(
+                        colors: [color.opacity(0.92), color],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
                 )
 
             RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                .strokeBorder(
-                    showSelectionRim
-                        ? Color.white.opacity(0.75)
-                        : Color.white.opacity(0.22),
-                    lineWidth: showSelectionRim ? 1.15 : 0.6
-                )
+                .strokeBorder(Color.white.opacity(0.24), lineWidth: 0.6)
 
             Image(systemName: symbol)
                 .font(.system(size: symbolSize, weight: .semibold))
-                .foregroundColor(isInvertedOnBlueSelection ? color : .white)
+                .foregroundColor(.white)
         }
         .frame(width: size, height: size)
         .shadow(color: Color.black.opacity(0.08), radius: 0.8, y: 0.4)
@@ -2261,18 +2464,20 @@ private struct ShortcutRecorderField: View {
                 }
             }
             .padding(.horizontal, 8)
-            .frame(width: 96, height: 24)
-            .background(
-                Capsule()
-                    .fill(isRecordingThis ? Color.blue.opacity(0.10) : Color.primary.opacity(0.05))
+            .frame(width: 96, height: 25)
+            .applyLiquidGlass(
+                in: Capsule(),
+                tint: isRecordingThis ? Color(red: 0.039, green: 0.518, blue: 1.0).opacity(0.18) : nil,
+                interactive: true,
+                fallbackFill: Color.primary.opacity(0.05)
             )
             .overlay(
                 Capsule()
                     .stroke(
                         isRecordingThis
                             ? Color(red: 0.039, green: 0.518, blue: 1.0).opacity(0.85)
-                            : Color.primary.opacity(0.10),
-                        lineWidth: isRecordingThis ? 1.2 : 0.75
+                            : Color.clear,
+                        lineWidth: 1.2
                     )
             )
             .contentShape(Capsule())
