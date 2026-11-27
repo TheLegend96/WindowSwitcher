@@ -155,17 +155,29 @@ public class SwitcherState: ObservableObject {
     public func moveDown() {
         let list = filteredWindows
         guard !list.isEmpty else { return }
+        if SettingsManager.shared.switcherStyle == .titles {
+            selectedIndex = (selectedIndex + 1) % list.count
+            return
+        }
         let count = list.count
-        let cols = count <= 4 ? count : min(6, max(3, (count + 1) / 2))
-        selectedIndex = min(selectedIndex + cols, count - 1)
+        let perRow = SettingsManager.shared.switcherStyle == .icons ? max(1, count <= 9 ? count : (count + 1) / 2) : (count <= 5 ? count : (count + 1) / 2)
+        if selectedIndex + perRow < count {
+            selectedIndex += perRow
+        }
     }
 
     public func moveUp() {
         let list = filteredWindows
         guard !list.isEmpty else { return }
+        if SettingsManager.shared.switcherStyle == .titles {
+            selectedIndex = (selectedIndex - 1 + list.count) % list.count
+            return
+        }
         let count = list.count
-        let cols = count <= 4 ? count : min(6, max(3, (count + 1) / 2))
-        selectedIndex = max(selectedIndex - cols, 0)
+        let perRow = SettingsManager.shared.switcherStyle == .icons ? max(1, count <= 9 ? count : (count + 1) / 2) : (count <= 5 ? count : (count + 1) / 2)
+        if selectedIndex - perRow >= 0 {
+            selectedIndex -= perRow
+        }
     }
 
     public func commitSelection() {

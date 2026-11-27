@@ -35,10 +35,18 @@ public enum CardSize: String, CaseIterable, Identifiable {
 
     public var iconSize: CGFloat {
         switch self {
-        case .small: return 48
-        case .medium: return 68
-        case .large: return 92
+        case .small: return 56
+        case .medium: return 72
+        case .large: return 88
         }
+    }
+
+    public var iconSlotWidth: CGFloat {
+        iconSize + 28
+    }
+
+    public var iconSlotHeight: CGFloat {
+        iconSize + 52
     }
 }
 

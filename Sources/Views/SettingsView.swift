@@ -258,29 +258,36 @@ public struct SettingsView: View {
                 appearanceStyleCard(
                     style: .icons,
                     label: "App Icons",
-                    description: "Focused application icons"
+                    description: "Command-Tab strip with labels"
                 ) {
                     ZStack {
                         Color(white: 0.12)
-                        HStack(spacing: 10) {
-                            Image(systemName: "safari.fill").font(.system(size: 22)).foregroundColor(.blue)
-                            Image(systemName: "terminal.fill").font(.system(size: 22)).foregroundColor(.white)
-                            Image(systemName: "folder.fill").font(.system(size: 22)).foregroundColor(.cyan)
+                        HStack(spacing: 6) {
+                            miniCmdTabIcon(symbol: "terminal.fill", tint: .white, name: "Terminal", isSelected: false)
+                            miniCmdTabIcon(symbol: "envelope.fill", tint: .blue, name: "Mail", isSelected: true)
+                            miniCmdTabIcon(symbol: "safari.fill", tint: .cyan, name: "Safari", isSelected: false)
                         }
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 8)
+                        .background(
+                            Capsule()
+                                .fill(Color.white.opacity(0.08))
+                                .overlay(Capsule().stroke(Color.white.opacity(0.16), lineWidth: 0.6))
+                        )
                     }
                 }
 
                 appearanceStyleCard(
                     style: .titles,
                     label: "Window Titles",
-                    description: "Compact list layout"
+                    description: "4-column vertical list"
                 ) {
                     ZStack {
                         Color(white: 0.12)
                         VStack(alignment: .leading, spacing: 3) {
-                            miniTitleRow(text: "Safari — GitHub", isSelected: true)
-                            miniTitleRow(text: "Terminal — zsh", isSelected: false)
-                            miniTitleRow(text: "Finder — Projects", isSelected: false)
+                            miniTitleRow(app: "Mail", title: "Inbox", isSelected: false)
+                            miniTitleRow(app: "Safari", title: "GitHub", isSelected: true)
+                            miniTitleRow(app: "Code", title: "App.swift", isSelected: false)
                         }
                         .padding(8)
                     }
@@ -507,22 +514,53 @@ public struct SettingsView: View {
         }
     }
 
-    private func miniTitleRow(text: String, isSelected: Bool) -> some View {
-        HStack(spacing: 4) {
+    private func miniCmdTabIcon(symbol: String, tint: Color, name: String, isSelected: Bool) -> some View {
+        VStack(spacing: 3) {
+            ZStack {
+                if isSelected {
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .fill(Color.white.opacity(0.20))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                .stroke(Color.white.opacity(0.35), lineWidth: 0.75)
+                        )
+                        .frame(width: 28, height: 28)
+                }
+                Image(systemName: symbol)
+                    .font(.system(size: 16))
+                    .foregroundColor(tint)
+            }
+            .frame(width: 28, height: 28)
+
+            Text(name)
+                .font(.system(size: 7, weight: isSelected ? .semibold : .regular))
+                .foregroundColor(isSelected ? .white : .white.opacity(0.62))
+                .lineLimit(1)
+        }
+        .frame(width: 40)
+    }
+
+    private func miniTitleRow(app: String, title: String, isSelected: Bool) -> some View {
+        HStack(spacing: 5) {
+            Text(app)
+                .font(.system(size: 7.5, weight: .medium))
+                .foregroundColor(isSelected ? .white : .white.opacity(0.65))
+                .frame(width: 30, alignment: .trailing)
+                .lineLimit(1)
             Circle()
-                .fill(isSelected ? settings.accentColor : Color.white.opacity(0.4))
-                .frame(width: 5, height: 5)
-            Text(text)
-                .font(.system(size: 8.5))
-                .foregroundColor(isSelected ? .white : .white.opacity(0.7))
+                .fill(isSelected ? .white : Color.white.opacity(0.5))
+                .frame(width: 7, height: 7)
+            Text(title)
+                .font(.system(size: 7.5))
+                .foregroundColor(isSelected ? .white : .white.opacity(0.85))
                 .lineLimit(1)
             Spacer()
         }
         .padding(.horizontal, 6)
-        .padding(.vertical, 2)
+        .padding(.vertical, 3)
         .background(
-            RoundedRectangle(cornerRadius: 3, style: .continuous)
-                .fill(isSelected ? settings.accentColor.opacity(0.3) : Color.clear)
+            RoundedRectangle(cornerRadius: 4, style: .continuous)
+                .fill(isSelected ? settings.accentColor : Color.clear)
         )
     }
 

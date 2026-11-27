@@ -161,6 +161,50 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
                 SwitcherState.shared.dismiss()
             }
         }
+        DistributedNotificationCenter.default().addObserver(forName: NSNotification.Name("com.custom.windowswitcher.testSwitcherIcons"), object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor in
+                self?.showSampleSwitcherForTesting(style: .icons)
+            }
+        }
+        DistributedNotificationCenter.default().addObserver(forName: NSNotification.Name("com.custom.windowswitcher.testSwitcherTitles"), object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor in
+                self?.showSampleSwitcherForTesting(style: .titles)
+            }
+        }
+    }
+
+    private func showSampleSwitcherForTesting(style: SwitcherStyle) {
+        SettingsManager.shared.switcherStyle = style
+        let ws = NSWorkspace.shared
+        let samples: [(app: String, title: String, bundle: String, hidden: Bool)] = [
+            ("Terminal", "Screenshoty bettercm | web", "com.apple.Terminal", true),
+            ("Messages", "Friends - Messages", "com.apple.MobileSMS", true),
+            ("Safari", "BetterCmdTab — A Better Cmd+Tab Window Switcher", "com.apple.Safari", true),
+            ("Notes", "performance.md (Working Tree)", "com.apple.Notes", true),
+            ("Finder", "WindowSwitcher", "com.apple.finder", true),
+            ("Mail", "Mail", "com.apple.mail", true),
+            ("Music", "Music", "com.apple.Music", false)
+        ]
+
+        SwitcherState.shared.windows = samples.enumerated().map { idx, item in
+            let icon = ws.urlForApplication(withBundleIdentifier: item.bundle)
+                .map { ws.icon(forFile: $0.path) }
+                ?? NSImage(systemSymbolName: "app.fill", accessibilityDescription: nil)
+            return SwitcherWindow(
+                id: CGWindowID(9000 + idx),
+                pid: pid_t(9000 + idx),
+                appName: item.app,
+                windowTitle: item.title,
+                appIcon: icon,
+                bounds: NSRect(x: 0, y: 0, width: 1000, height: 700),
+                isMinimized: false,
+                isHidden: item.hidden
+            )
+        }
+        SwitcherState.shared.searchText = ""
+        SwitcherState.shared.selectedIndex = 1
+        SwitcherState.shared.isVisible = true
+        showOverlay()
     }
 
     private func setupStatusItem() {
@@ -249,28 +293,40 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
 
         let screenRect = screen.visibleFrame
         let count = max(1, SwitcherState.shared.filteredWindows.count)
-        let cardH = SettingsManager.shared.cardSize.cardHeight
-        let maxCardW = SettingsManager.shared.switcherStyle == .titles ? 280 : (SettingsManager.shared.switcherStyle == .icons ? cardH * 0.95 : cardH * 1.55 + 16)
+        let cardSize = SettingsManager.shared.cardSize
+        let searchExtra: CGFloat = SwitcherState.shared.searchText.isEmpty ? 0 : 44
 
-        let rows: Int
-        let perRow: Int
-        if SettingsManager.shared.switcherStyle == .titles {
-            rows = min(count, 8)
-            perRow = 1
-        } else {
-            rows = count <= 5 ? 1 : 2
-            perRow = count <= 5 ? count : (count + 1) / 2
+        let gridW: CGFloat
+        let gridH: CGFloat
+
+        switch SettingsManager.shared.switcherStyle {
+        case .titles:
+            let rows = min(count, 14)
+            gridW = 500 + 16
+            gridH = CGFloat(rows) * 31 + CGFloat(max(0, rows - 1)) * 2 + 16 + searchExtra + (SwitcherState.shared.searchText.isEmpty ? 0 : 6)
+
+        case .icons:
+            let stepW = cardSize.iconSlotWidth + 10
+            let limit = max(5, min(10, Int(1120.0 / stepW)))
+            let rows = count <= limit ? 1 : 2
+            let perRow = count <= limit ? count : (count + 1) / 2
+            gridW = CGFloat(perRow) * cardSize.iconSlotWidth + CGFloat(max(0, perRow - 1)) * 10 + 44
+            gridH = CGFloat(rows) * cardSize.iconSlotHeight + CGFloat(max(0, rows - 1)) * 12 + 32 + searchExtra
+
+        case .thumbnails:
+            let cardH = cardSize.cardHeight
+            let maxCardW = cardH * 1.55 + 16
+            let rows = count <= 5 ? 1 : 2
+            let perRow = count <= 5 ? count : (count + 1) / 2
+            gridW = CGFloat(perRow) * maxCardW + CGFloat(max(0, perRow - 1)) * 12 + 36
+            gridH = CGFloat(rows) * cardH + CGFloat(max(0, rows - 1)) * 12 + 36 + searchExtra
         }
-
-        let gridW = CGFloat(perRow) * maxCardW + CGFloat(max(0, perRow - 1)) * 12 + 36
-        let gridH = CGFloat(rows) * cardH + CGFloat(max(0, rows - 1)) * 12 + 36 + (SwitcherState.shared.searchText.isEmpty ? 0 : 44)
 
         // Outer padding for drop shadows (generous margins so shadow decays completely to zero with zero clipping)
         let outerPaddingW: CGFloat = 90 * 2
         let outerPaddingH: CGFloat = 70 + 110
-        let fitting = panel.contentView?.fittingSize ?? NSSize.zero
-        let targetW = max(fitting.width, gridW + outerPaddingW)
-        let targetH = max(fitting.height, gridH + outerPaddingH)
+        let targetW = gridW + outerPaddingW
+        let targetH = gridH + outerPaddingH
 
         let totalW = min(targetW, screenRect.width - 40)
         let totalH = min(targetH, screenRect.height - 40)

@@ -14,10 +14,6 @@ public struct ClearLiquidGlassBase: NSViewRepresentable {
         view.material = .hudWindow
         view.blendingMode = .behindWindow
         view.state = .active
-        view.wantsLayer = true
-        view.layer?.cornerRadius = cornerRadius
-        view.layer?.cornerCurve = .continuous
-        view.layer?.masksToBounds = true
         return view
     }
 
@@ -25,9 +21,6 @@ public struct ClearLiquidGlassBase: NSViewRepresentable {
         nsView.material = .hudWindow
         nsView.blendingMode = .behindWindow
         nsView.state = .active
-        nsView.layer?.cornerRadius = cornerRadius
-        nsView.layer?.cornerCurve = .continuous
-        nsView.layer?.masksToBounds = true
     }
 }
 
@@ -43,17 +36,40 @@ public struct SwitcherOverlayView: View {
         state.filteredWindows
     }
 
-    // Split key windows into balanced rows (1 row if <= 5, 2 rows if > 5)
+    // Native Command+Tab App Icons prefers a single horizontal strip (wrapping cleanly only when exceeding row capacity)
+    private var maxItemsPerRow: Int {
+        if settings.switcherStyle == .icons {
+            let maxRowWidth: CGFloat = 1120
+            let stepW = settings.cardSize.iconSlotWidth + 10
+            return max(5, min(10, Int(maxRowWidth / stepW)))
+        }
+        return 5
+    }
+
     private var rowsOfWindows: [[(index: Int, window: SwitcherWindow)]] {
         let indexed = Array(activeWindows.enumerated()).map { ($0.offset, $0.element) }
         guard !indexed.isEmpty else { return [] }
-        if indexed.count <= 5 {
+        let limit = maxItemsPerRow
+        if indexed.count <= limit {
             return [indexed]
         }
         let mid = (indexed.count + 1) / 2
         let row1 = Array(indexed[0..<mid])
         let row2 = Array(indexed[mid..<indexed.count])
         return [row1, row2]
+    }
+
+    private var effectiveCornerRadius: CGFloat {
+        switch settings.switcherStyle {
+        case .icons:
+            // Deep macOS Command-Tab capsule curvature
+            return rowsOfWindows.count <= 1 ? max(CGFloat(settings.hudCornerRadius), 38) : max(CGFloat(settings.hudCornerRadius), 28)
+        case .titles:
+            // Compact macOS list container curvature
+            return min(CGFloat(settings.hudCornerRadius), 18)
+        case .thumbnails:
+            return CGFloat(settings.hudCornerRadius)
+        }
     }
 
     public var body: some View {
@@ -65,7 +81,7 @@ public struct SwitcherOverlayView: View {
     }
 
     private var hudContent: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: settings.switcherStyle == .titles ? 6 : 12) {
             // MARK: - 1. Real-Time Search Bar (Visible only when typing)
             if !state.searchText.isEmpty {
                 HStack(spacing: 8) {
@@ -92,7 +108,7 @@ public struct SwitcherOverlayView: View {
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 7)
-                .background(Color.black.opacity(0.45))
+                .background(Color.black.opacity(0.42))
                 .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                 .overlay(
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
@@ -101,35 +117,58 @@ public struct SwitcherOverlayView: View {
                 .padding(.horizontal, 4)
             }
 
-            // MARK: - 2. Windows Grid / List (Full Mouse Hover & Click Support)
+            // MARK: - 2. Windows Grid / Strip / Vertical List
             if activeWindows.isEmpty {
                 VStack(spacing: 8) {
                     Image(systemName: "magnifyingglass")
-                        .font(.system(size: 32))
+                        .font(.system(size: 30))
                         .foregroundColor(.white.opacity(0.4))
                     Text("No windows matching \"\(state.searchText)\"")
                         .font(.system(size: 13, weight: .medium))
                         .foregroundColor(.white.opacity(0.8))
                 }
-                .frame(width: 440, height: 130)
+                .frame(width: 420, height: 120)
             } else if settings.switcherStyle == .titles {
-                // Vertical compact list layout
-                VStack(spacing: 6) {
-                    ForEach(Array(activeWindows.enumerated()), id: \.element.id) { index, window in
-                        WindowCardView(
-                            window: window,
-                            isSelected: index == state.selectedIndex,
-                            onClose: {
-                                state.closeWindow(at: index)
-                            },
-                            onSelect: {
-                                state.commitSelection(for: window)
+                // Reference-accurate 4-column Vertical List (App | Icon | Title | Status)
+                ScrollView(.vertical, showsIndicators: false) {
+                    VStack(spacing: 2) {
+                        ForEach(Array(activeWindows.enumerated()), id: \.element.id) { index, window in
+                            WindowCardView(
+                                window: window,
+                                isSelected: index == state.selectedIndex,
+                                onClose: {
+                                    state.closeWindow(at: index)
+                                },
+                                onSelect: {
+                                    state.commitSelection(for: window)
+                                }
+                            )
+                        }
+                    }
+                }
+                .frame(maxHeight: min(CGFloat(activeWindows.count) * 34, 480))
+            } else if settings.switcherStyle == .icons {
+                // Native macOS Command-Tab Horizontal Capsule Strip with App Names Below
+                VStack(spacing: 12) {
+                    ForEach(0..<rowsOfWindows.count, id: \.self) { rowIdx in
+                        HStack(spacing: 10) {
+                            ForEach(rowsOfWindows[rowIdx], id: \.window.id) { item in
+                                WindowCardView(
+                                    window: item.window,
+                                    isSelected: item.index == state.selectedIndex,
+                                    onClose: {
+                                        state.closeWindow(at: item.index)
+                                    },
+                                    onSelect: {
+                                        state.commitSelection(for: item.window)
+                                    }
+                                )
                             }
-                        )
+                        }
                     }
                 }
             } else {
-                // 1 or 2 rows of dynamic-width cards (Thumbnails or App Icons)
+                // Live Thumbnail Grid (1 or 2 rows)
                 VStack(spacing: 12) {
                     ForEach(0..<rowsOfWindows.count, id: \.self) { rowIdx in
                         HStack(spacing: 12) {
@@ -150,23 +189,22 @@ public struct SwitcherOverlayView: View {
                 }
             }
         }
-        .padding(18)
-        .background(
-            liquidGlassBackground
-        )
+        .padding(.horizontal, settings.switcherStyle == .titles ? 8 : (settings.switcherStyle == .icons ? 22 : 18))
+        .padding(.vertical, settings.switcherStyle == .titles ? 8 : (settings.switcherStyle == .icons ? 16 : 18))
+        .background(liquidGlassBackground)
     }
 
     // MARK: - Authentic Apple Liquid Glass Background (HIG Compliant)
     private var liquidGlassBackground: some View {
-        let r = CGFloat(settings.hudCornerRadius)
+        let r = effectiveCornerRadius
+        let isLightHUD = settings.themeMode == .light
 
         return ZStack {
-            // 1. Pure Vector Rounded Rectangle Shadow Base
-            // 3-Tier Apple HIG Depth Stack for authentic floating liquid glass depth
+            // 1. Floating depth shadows
             RoundedRectangle(cornerRadius: r, style: .continuous)
-                .fill(Color(white: 0.14).opacity(0.92))
+                .fill(isLightHUD ? Color.white.opacity(0.65) : Color(white: 0.10).opacity(0.62))
                 .shadow(
-                    color: Color.black.opacity(0.12),
+                    color: Color.black.opacity(0.14),
                     radius: 2,
                     x: 0,
                     y: 1
@@ -188,16 +226,16 @@ public struct SwitcherOverlayView: View {
             ClearLiquidGlassBase(cornerRadius: r)
                 .clipShape(RoundedRectangle(cornerRadius: r, style: .continuous))
 
-            // 3. Apple Neutral Optical Glass Tint
+            // 3. Neutral smoky optical glass tint matching native Cmd-Tab depth & high legibility
             RoundedRectangle(cornerRadius: r, style: .continuous)
-                .fill(Color(white: 0.08).opacity(0.20))
+                .fill(isLightHUD ? Color.white.opacity(0.28) : Color(white: 0.06).opacity(0.46))
 
-            // 4. Subtle Top Light Luminance (Apple HIG Natural Downward Sheen - NO WHITE CUTS)
+            // 4. Soft downward luminance sheen
             RoundedRectangle(cornerRadius: r, style: .continuous)
                 .fill(
                     LinearGradient(
                         colors: [
-                            Color.white.opacity(0.12),
+                            Color.white.opacity(isLightHUD ? 0.30 : 0.14),
                             Color.white.opacity(0.02),
                             Color.clear
                         ],
@@ -206,34 +244,21 @@ public struct SwitcherOverlayView: View {
                     )
                 )
 
-            // 5. Authentic Apple Liquid Glass Specular Hairline Stroke
-            // Clean, pristine neutral light catch from top to bottom - NO CYANS, NO MAGENTAS, NO BLACKS
+            // 5. Specular hairline catch around Liquid Glass rim
             RoundedRectangle(cornerRadius: r, style: .continuous)
-                .stroke(
+                .strokeBorder(
                     LinearGradient(
                         stops: [
                             .init(color: Color.white.opacity(0.42), location: 0.0),
-                            .init(color: Color.white.opacity(0.16), location: 0.40),
-                            .init(color: Color.white.opacity(0.06), location: 0.75),
-                            .init(color: Color.white.opacity(0.12), location: 1.0)
+                            .init(color: Color.white.opacity(0.16), location: 0.45),
+                            .init(color: Color.white.opacity(0.08), location: 0.80),
+                            .init(color: Color.white.opacity(0.14), location: 1.0)
                         ],
                         startPoint: .top,
                         endPoint: .bottom
                     ),
-                    lineWidth: max(1.0, CGFloat(settings.borderWidth))
+                    lineWidth: max(0.8, CGFloat(settings.borderWidth))
                 )
-
-            // 6. Delicate Inner Bevel Lip (Apple physical glass thickness)
-            RoundedRectangle(cornerRadius: max(0, r - 1.5), style: .continuous)
-                .stroke(
-                    LinearGradient(
-                        colors: [Color.white.opacity(0.18), Color.white.opacity(0.02)],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    ),
-                    lineWidth: 0.75
-                )
-                .padding(1)
         }
     }
 
