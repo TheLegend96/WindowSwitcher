@@ -17,14 +17,14 @@ public enum AnnotationTool: String, CaseIterable, Identifiable {
 
     public var icon: String {
         switch self {
-        case .pointer: return "arrow.up.left"
+        case .pointer: return "cursorarrow"
         case .distance: return "ruler"
         case .arrow: return "arrow.up.right"
         case .text: return "textformat"
         case .numberedPin: return "1.circle"
         case .rectangle: return "rectangle"
-        case .pencil: return "pencil.tip"
-        case .blur: return "circle.lefthalf.filled"
+        case .pencil: return "highlighter"
+        case .blur: return "checkerboard.rectangle"
         }
     }
 
@@ -347,25 +347,46 @@ public enum AnnotationRenderer {
         public let imageCanvasRect: NSRect
     }
 
+    public struct TextMetrics {
+        public let bounds: CGRect
+        public let textSize: CGSize
+        public let fontSize: CGFloat
+        public let padX: CGFloat
+        public let padY: CGFloat
+    }
+
+    public static func textMetrics(text: String, fontSize rawFontSize: CGFloat, style: TextStyle, origin: CGPoint) -> TextMetrics {
+        let fontSize = max(10, min(48, rawFontSize > 8 ? rawFontSize : 16))
+        let displayText = (text.isEmpty ? "Text" : text)
+        let font = NSFont.systemFont(ofSize: fontSize, weight: style == .plain ? .semibold : .medium)
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.lineSpacing = max(2, round(fontSize * 0.14))
+        let attrs: [NSAttributedString.Key: Any] = [
+            .font: font,
+            .paragraphStyle: paragraph
+        ]
+        let attrString = NSAttributedString(string: displayText, attributes: attrs)
+        let maxSize = CGSize(width: 520, height: 800)
+        let measured = attrString.boundingRect(
+            with: maxSize,
+            options: [.usesLineFragmentOrigin, .usesFontLeading]
+        )
+        let padX: CGFloat = style == .plain ? 6 : 12
+        let padY: CGFloat = style == .plain ? 3 : 7
+        let textW = ceil(measured.width) + 4 // Safety slack against subpixel kerning wrap
+        let textH = ceil(measured.height) + 1
+        let bounds = CGRect(
+            x: origin.x,
+            y: origin.y,
+            width: max(28, textW + padX * 2),
+            height: max(22, textH + padY * 2)
+        )
+        return TextMetrics(bounds: bounds, textSize: CGSize(width: textW, height: textH), fontSize: fontSize, padX: padX, padY: padY)
+    }
+
     /// Computes exact image-space bounding rect for text callouts (used uniformly for draw & hit-test).
     public static func textImageBounds(for ann: CanvasAnnotation) -> CGRect {
-        let fontSize = max(10, min(48, ann.strokeWidth > 8 ? ann.strokeWidth : 16))
-        let displayText = (ann.text.isEmpty ? "Text" : ann.text) as NSString
-        let font = NSFont.systemFont(ofSize: fontSize, weight: ann.textStyle == .plain ? .semibold : .medium)
-        let maxSize = CGSize(width: 560, height: 800)
-        let measured = displayText.boundingRect(
-            with: maxSize,
-            options: [.usesLineFragmentOrigin, .usesFontLeading],
-            attributes: [.font: font]
-        )
-        let padX: CGFloat = ann.textStyle == .plain ? 4 : 12
-        let padY: CGFloat = ann.textStyle == .plain ? 2 : 7
-        return CGRect(
-            x: ann.startPoint.x,
-            y: ann.startPoint.y,
-            width: ceil(measured.width) + padX * 2,
-            height: ceil(measured.height) + padY * 2
-        )
+        return textMetrics(text: ann.text, fontSize: ann.strokeWidth, style: ann.textStyle, origin: ann.startPoint).bounds
     }
 
     public static func draw(
@@ -501,6 +522,13 @@ public enum AnnotationRenderer {
             ctx.setFillColor(color.cgColor)
             ctx.addPath(path)
             ctx.fillPath()
+            if color.relativeLuminance > 0.80 {
+                ctx.setShadow(offset: .zero, blur: 0, color: nil)
+                ctx.setStrokeColor(NSColor.black.withAlphaComponent(0.18).cgColor)
+                ctx.setLineWidth(max(0.75, width * 0.12))
+                ctx.addPath(path)
+                ctx.strokePath()
+            }
 
         case .filledSingle:
             let headLen = min(len * 0.48, max(11.0, width * 2.8))
@@ -681,85 +709,90 @@ public enum AnnotationRenderer {
     // MARK: - Text Callout Rendering (Plain Text | Pill Card | Speech Quote Bubble)
     private static func drawTextCallout(ann: CanvasAnnotation, mapper: Mapper, in ctx: CGContext) {
         let s = mapper.scale
-        let imgBox = textImageBounds(for: ann)
+        let metrics = textMetrics(text: ann.text, fontSize: ann.strokeWidth, style: ann.textStyle, origin: ann.startPoint)
+        let imgBox = metrics.bounds
         let vTopLeft = mapper.toCanvasPoint(imgBox.origin)
         let vBottomRight = mapper.toCanvasPoint(CGPoint(x: imgBox.maxX, y: imgBox.maxY))
         let r = normalizedRect(from: vTopLeft, to: vBottomRight)
 
-        let fontSize = max(10, min(48, ann.strokeWidth > 8 ? ann.strokeWidth : 16)) * s
-        let displayText = (ann.text.isEmpty ? "Text" : ann.text) as NSString
+        let fontSize = metrics.fontSize * s
+        let displayText = ann.text.isEmpty ? "Text" : ann.text
         let textColor = ann.color
         let font = NSFont.systemFont(ofSize: fontSize, weight: ann.textStyle == .plain ? .semibold : .medium)
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.lineSpacing = max(2, round(metrics.fontSize * 0.14)) * s
         let attrs: [NSAttributedString.Key: Any] = [
             .font: font,
-            .foregroundColor: textColor
+            .foregroundColor: textColor,
+            .paragraphStyle: paragraph
         ]
+        let attrStr = NSAttributedString(string: displayText, attributes: attrs)
 
-        let padX: CGFloat = (ann.textStyle == .plain ? 4 : 12) * s
-        let padY: CGFloat = (ann.textStyle == .plain ? 2 : 7) * s
+        let padX = metrics.padX * s
+        let padY = metrics.padY * s
         let textDrawRect = NSRect(
             x: r.origin.x + padX,
             y: r.origin.y + padY,
-            width: max(10, r.width - padX * 2),
-            height: max(10, r.height - padY * 2)
+            width: max(12, r.width - padX * 2),
+            height: max(12, r.height - padY * 2)
         )
 
         ctx.saveGState()
         switch ann.textStyle {
         case .plain:
-            // High-legibility subtle shadow so plain text pops cleanly over dark/light backgrounds
+            // High-legibility subtle contrast halo + drop shadow so plain text pops on dark/light UIs
             let isLightInk = textColor.relativeLuminance > 0.45
             ctx.setShadow(
                 offset: CGSize(width: 0, height: -1),
                 blur: 3.5,
-                color: (isLightInk ? NSColor.black : NSColor.white).withAlphaComponent(0.60).cgColor
+                color: (isLightInk ? NSColor.black : NSColor.white).withAlphaComponent(isLightInk ? 0.65 : 0.72).cgColor
             )
-            displayText.draw(in: textDrawRect, withAttributes: attrs)
+            attrStr.draw(in: textDrawRect)
 
         case .card:
-            let bg = textColor.relativeLuminance > 0.45
-                ? NSColor(red: 22/255, green: 22/255, blue: 26/255, alpha: 0.90)
-                : NSColor(red: 255/255, green: 255/255, blue: 255/255, alpha: 0.95)
-            let border = textColor.relativeLuminance > 0.45
-                ? NSColor.white.withAlphaComponent(0.18)
-                : NSColor.black.withAlphaComponent(0.12)
-
-            ctx.setShadow(offset: CGSize(width: 0, height: -3), blur: 8, color: NSColor.black.withAlphaComponent(0.22).cgColor)
-            let cardPath = NSBezierPath(roundedRect: r, xRadius: 7 * s, yRadius: 7 * s)
-            bg.setFill()
-            cardPath.fill()
-            ctx.setShadow(offset: .zero, blur: 0, color: nil)
-            border.setStroke()
-            cardPath.lineWidth = 1.0
-            cardPath.stroke()
-
-            displayText.draw(in: textDrawRect, withAttributes: attrs)
-
-        case .quoteBubble:
             let bg = textColor.relativeLuminance > 0.45
                 ? NSColor(red: 22/255, green: 22/255, blue: 26/255, alpha: 0.92)
                 : NSColor(red: 255/255, green: 255/255, blue: 255/255, alpha: 0.96)
             let border = textColor.relativeLuminance > 0.45
-                ? NSColor.white.withAlphaComponent(0.20)
-                : NSColor.black.withAlphaComponent(0.14)
+                ? NSColor.white.withAlphaComponent(0.18)
+                : NSColor.black.withAlphaComponent(0.10)
 
-            let bubblePath = speechBubblePath(rect: r, cornerRadius: 9 * s, tailWidth: 12 * s, tailHeight: 9 * s)
-            ctx.setShadow(offset: CGSize(width: 0, height: -3), blur: 10, color: NSColor.black.withAlphaComponent(0.24).cgColor)
+            ctx.setShadow(offset: CGSize(width: 0, height: -3), blur: 10, color: NSColor.black.withAlphaComponent(0.18).cgColor)
+            let cardPath = NSBezierPath(roundedRect: r, xRadius: 8 * s, yRadius: 8 * s)
+            bg.setFill()
+            cardPath.fill()
+            ctx.setShadow(offset: .zero, blur: 0, color: nil)
+            border.setStroke()
+            cardPath.lineWidth = 0.8
+            cardPath.stroke()
+
+            attrStr.draw(in: textDrawRect)
+
+        case .quoteBubble:
+            let bg = textColor.relativeLuminance > 0.45
+                ? NSColor(red: 22/255, green: 22/255, blue: 26/255, alpha: 0.94)
+                : NSColor(red: 255/255, green: 255/255, blue: 255/255, alpha: 0.97)
+            let border = textColor.relativeLuminance > 0.45
+                ? NSColor.white.withAlphaComponent(0.18)
+                : NSColor.black.withAlphaComponent(0.12)
+
+            let bubblePath = speechBubblePath(rect: r, cornerRadius: 9 * s, tailWidth: 12 * s, tailHeight: 8.5 * s)
+            ctx.setShadow(offset: CGSize(width: 0, height: -3), blur: 10, color: NSColor.black.withAlphaComponent(0.20).cgColor)
             bg.setFill()
             bubblePath.fill()
             ctx.setShadow(offset: .zero, blur: 0, color: nil)
             border.setStroke()
-            bubblePath.lineWidth = 1.0
+            bubblePath.lineWidth = 0.8
             bubblePath.stroke()
 
-            displayText.draw(in: textDrawRect, withAttributes: attrs)
+            attrStr.draw(in: textDrawRect)
         }
         ctx.restoreGState()
     }
 
-    private static func speechBubblePath(rect r: NSRect, cornerRadius cr: CGFloat, tailWidth tw: CGFloat, tailHeight th: CGFloat) -> NSBezierPath {
+    public static func speechBubblePath(rect r: NSRect, cornerRadius cr: CGFloat, tailWidth tw: CGFloat, tailHeight th: CGFloat) -> NSBezierPath {
         let radius = min(cr, min(r.width, r.height) / 2)
-        let tailStartX = min(r.maxX - radius - tw, r.minX + radius + 8)
+        let tailStartX = max(r.minX + radius + 2, min(r.maxX - radius - tw - 2, r.minX + radius + 8))
         let tailTipX = tailStartX - 2
 
         let p = NSBezierPath()
@@ -829,5 +862,45 @@ public enum AnnotationRenderer {
             width: max(1, abs(p1.x - p2.x)),
             height: max(1, abs(p1.y - p2.y))
         )
+    }
+
+    /// Unified 6-dot floating drag grip capsule (shared between Canvas hover/selection and live inline Text editor).
+    public static func drawDragGripPill(center: CGPoint, isHighlighted: Bool, in ctx: CGContext) {
+        let w: CGFloat = 26
+        let h: CGFloat = 15
+        let pillRect = NSRect(x: center.x - w / 2, y: center.y - h / 2, width: w, height: h)
+        let accent = NSColor(red: 10/255, green: 132/255, blue: 255/255, alpha: 1.0)
+
+        ctx.saveGState()
+        ctx.setShadow(offset: CGSize(width: 0, height: -1.5), blur: 5.0, color: NSColor.black.withAlphaComponent(0.22).cgColor)
+        let path = NSBezierPath(roundedRect: pillRect, xRadius: h / 2, yRadius: h / 2)
+        if isHighlighted {
+            accent.setFill()
+            path.fill()
+            ctx.setShadow(offset: .zero, blur: 0, color: nil)
+            NSColor.white.withAlphaComponent(0.35).setStroke()
+            path.lineWidth = 0.8
+            path.stroke()
+        } else {
+            NSColor.white.withAlphaComponent(0.96).setFill()
+            path.fill()
+            ctx.setShadow(offset: .zero, blur: 0, color: nil)
+            accent.withAlphaComponent(0.85).setStroke()
+            path.lineWidth = 1.0
+            path.stroke()
+        }
+
+        let dotColor: NSColor = isHighlighted ? .white : accent
+        dotColor.setFill()
+        let dotR: CGFloat = 1.15
+        let cols: [CGFloat] = [-4.5, 0, 4.5]
+        let rows: [CGFloat] = [-2.2, 2.2]
+        for dx in cols {
+            for dy in rows {
+                let dr = NSRect(x: center.x + dx - dotR, y: center.y + dy - dotR, width: dotR * 2, height: dotR * 2)
+                NSBezierPath(ovalIn: dr).fill()
+            }
+        }
+        ctx.restoreGState()
     }
 }

@@ -791,6 +791,7 @@ public struct SettingsView: View {
                     shortcutRow(keys: ["R", "C"], description: "Rectangle / Rounded Card (Stroke, Tinted, or Solid fill)")
                     shortcutRow(keys: ["N"], description: "Numbered QA Pin (①, ②, ③)")
                     shortcutRow(keys: ["B"], description: "Mosaic Redaction Blur Box")
+                    shortcutRow(keys: ["↑↓←→"], description: "Nudge selected object 1px (⇧ for grid) • Hover grip pill to drag")
                     shortcutRow(keys: ["Tab"], description: "Copy hovered Hex color • ⇧Tab measures WCAG Contrast")
                     shortcutRow(keys: ["⌘", "Z"], description: "Undo • ⌘⇧Z Redo • ⌘C Copy Annotated Image")
                 }

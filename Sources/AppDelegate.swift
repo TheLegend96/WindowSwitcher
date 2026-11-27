@@ -71,7 +71,10 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
                 ScreenshotCoordinator.shared.simulateWindowClickForTesting()
             }
         }
-        DistributedNotificationCenter.default().addObserver(forName: NSNotification.Name("com.custom.windowswitcher.testEditorWindow"), object: nil, queue: .main) { _ in
+        DistributedNotificationCenter.default().addObserver(forName: NSNotification.Name("com.custom.windowswitcher.testEditorWindow"), object: nil, queue: .main) { notif in
+            let selectStr = (notif.userInfo?["selectIndex"] as? String) ?? (notif.object as? String) ?? "3"
+            let selIdx = Int(selectStr) ?? 3
+            let editLive = (notif.userInfo?["editLiveText"] as? String) == "true"
             Task { @MainActor in
                 // Generate a sample preview image
                 let size = NSSize(width: 800, height: 500)
@@ -91,7 +94,37 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
                     return true
                 }
                 ScreenshotEditorWindowController.shared.show(image: image, sourceRect: NSRect(origin: .zero, size: size))
-                ScreenshotEditorWindowController.shared.addSampleAnnotationsForTesting()
+                ScreenshotEditorWindowController.shared.addSampleAnnotationsForTesting(selectedIndex: selIdx)
+                if editLive {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                        ScreenshotEditorWindowController.shared.openInlineTextForTesting(index: 5)
+                    }
+                }
+            }
+        }
+        DistributedNotificationCenter.default().addObserver(forName: NSNotification.Name("com.custom.windowswitcher.testEditorLiveText"), object: nil, queue: .main) { _ in
+            Task { @MainActor in
+                let size = NSSize(width: 800, height: 500)
+                let image = NSImage(size: size, flipped: false) { rect in
+                    NSColor.windowBackgroundColor.setFill()
+                    rect.fill()
+                    let text = "WindowSwitcher Designer Studio Preview" as NSString
+                    text.draw(at: NSPoint(x: 40, y: 440), withAttributes: [
+                        .font: NSFont.systemFont(ofSize: 24, weight: .bold),
+                        .foregroundColor: NSColor.labelColor
+                    ])
+                    let secret = "TOKEN: sk_live_98123_redacted" as NSString
+                    secret.draw(at: NSPoint(x: 530, y: 44), withAttributes: [
+                        .font: NSFont.monospacedSystemFont(ofSize: 13, weight: .semibold),
+                        .foregroundColor: NSColor.labelColor
+                    ])
+                    return true
+                }
+                ScreenshotEditorWindowController.shared.show(image: image, sourceRect: NSRect(origin: .zero, size: size))
+                ScreenshotEditorWindowController.shared.addSampleAnnotationsForTesting(selectedIndex: 5)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                    ScreenshotEditorWindowController.shared.openInlineTextForTesting(index: 5)
+                }
             }
         }
         DistributedNotificationCenter.default().addObserver(forName: NSNotification.Name("com.custom.windowswitcher.openSettings"), object: nil, queue: .main) { [weak self] notif in

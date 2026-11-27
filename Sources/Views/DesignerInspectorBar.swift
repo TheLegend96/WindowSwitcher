@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-// MARK: - Live NSColorPanel Bridge (Native macOS Color Picker)
+// MARK: - Live NSColorPanel Bridge (Native macOS Color Picker & Eyedropper)
 @MainActor
 public final class DesignerColorPanelController: NSObject, ObservableObject {
     public static let shared = DesignerColorPanelController()
@@ -44,72 +44,88 @@ private final class SliderDragFlag {
     var active = false
 }
 
-// MARK: - Tapered Wedge Thickness Slider (Figma / Shottr Style)
+// MARK: - Tapered Wedge Thickness Slider (Figma / Shottr Style with Crisp Tabular Readout)
 public struct TaperedThicknessSlider: View {
     @Binding var value: CGFloat
     let range: ClosedRange<CGFloat>
+    var unit: String = "px"
     var onBeginEdit: (() -> Void)? = nil
     var onValueChanged: ((CGFloat) -> Void)? = nil
 
     private let dragFlag = SliderDragFlag()
 
     public var body: some View {
-        GeometryReader { geo in
-            let width = max(1, geo.size.width)
-            let height = geo.size.height
-            let normalized = max(0, min(1, (value - range.lowerBound) / max(0.001, range.upperBound - range.lowerBound)))
-            let thumbX = 7 + normalized * max(1, width - 14)
+        HStack(spacing: 6) {
+            GeometryReader { geo in
+                let width = max(1, geo.size.width)
+                let height = geo.size.height
+                let normalized = max(0, min(1, (value - range.lowerBound) / max(0.001, range.upperBound - range.lowerBound)))
+                let thumbX = 7 + normalized * max(1, width - 14)
 
-            ZStack(alignment: .leading) {
-                // Full tapered wedge background outline
-                TaperedWedgeShape()
-                    .fill(Color.primary.opacity(0.08))
-                    .overlay(
-                        TaperedWedgeShape()
-                            .stroke(Color.primary.opacity(0.22), lineWidth: 0.9)
-                    )
-                    .frame(height: 14)
+                ZStack(alignment: .leading) {
+                    // Track contour clipped cleanly to the wedge
+                    TaperedWedgeShape()
+                        .fill(Color.primary.opacity(0.07))
+                        .frame(height: 14)
 
-                // Active filled portion up to thumb
-                TaperedWedgeShape()
-                    .fill(Color(red: 10/255, green: 132/255, blue: 255/255).opacity(0.32))
-                    .mask(
-                        HStack(spacing: 0) {
-                            Rectangle().frame(width: thumbX)
-                            Spacer(minLength: 0)
+                    // Active Cobalt Azure fill clipped accurately inside wedge geometry
+                    TaperedWedgeShape()
+                        .fill(Color(red: 10/255, green: 132/255, blue: 255/255).opacity(0.36))
+                        .frame(height: 14)
+                        .mask(
+                            TaperedWedgeShape()
+                                .frame(height: 14)
+                                .overlay(alignment: .leading) {
+                                    EmptyView()
+                                }
+                                .mask(
+                                    HStack(spacing: 0) {
+                                        Rectangle().frame(width: thumbX)
+                                        Spacer(minLength: 0)
+                                    }
+                                )
+                        )
+
+                    TaperedWedgeShape()
+                        .stroke(Color.primary.opacity(0.18), lineWidth: 0.75)
+                        .frame(height: 14)
+
+                    // Machined circular Apple thumb
+                    Circle()
+                        .fill(Color.white)
+                        .frame(width: 14, height: 14)
+                        .overlay(Circle().stroke(Color.black.opacity(0.20), lineWidth: 0.75))
+                        .shadow(color: Color.black.opacity(0.14), radius: 2, y: 0.75)
+                        .position(x: thumbX, y: height / 2)
+                }
+                .contentShape(Rectangle())
+                .gesture(
+                    DragGesture(minimumDistance: 0)
+                        .onChanged { val in
+                            if !dragFlag.active {
+                                dragFlag.active = true
+                                onBeginEdit?()
+                            }
+                            let rawNorm = (val.location.x - 7) / max(1, width - 14)
+                            let clamped = max(0, min(1, rawNorm))
+                            let newVal = range.lowerBound + clamped * (range.upperBound - range.lowerBound)
+                            value = newVal
+                            onValueChanged?(newVal)
                         }
-                    )
-                    .frame(height: 14)
-
-                // Draggable circular white thumb
-                Circle()
-                    .fill(Color.white)
-                    .frame(width: 15, height: 15)
-                    .overlay(Circle().stroke(Color.black.opacity(0.18), lineWidth: 0.8))
-                    .shadow(color: Color.black.opacity(0.18), radius: 2, y: 1)
-                    .position(x: thumbX, y: height / 2)
+                        .onEnded { _ in
+                            dragFlag.active = false
+                        }
+                )
             }
-            .contentShape(Rectangle())
-            .gesture(
-                DragGesture(minimumDistance: 0)
-                    .onChanged { val in
-                        if !dragFlag.active {
-                            dragFlag.active = true
-                            onBeginEdit?()
-                        }
-                        let rawNorm = (val.location.x - 7) / max(1, width - 14)
-                        let clamped = max(0, min(1, rawNorm))
-                        let newVal = range.lowerBound + clamped * (range.upperBound - range.lowerBound)
-                        value = newVal
-                        onValueChanged?(newVal)
-                    }
-                    .onEnded { _ in
-                        dragFlag.active = false
-                    }
-            )
+            .frame(width: 96, height: 24)
+            .help("Drag to adjust size")
+
+            Text(verbatim: "\(Int(round(value))) \(unit)")
+                .font(.system(size: 11, weight: .medium, design: .rounded))
+                .monospacedDigit()
+                .foregroundColor(.secondary)
+                .frame(minWidth: 30, alignment: .leading)
         }
-        .frame(width: 104, height: 24)
-        .help("Drag to adjust size / thickness")
     }
 }
 
@@ -117,9 +133,9 @@ private struct TaperedWedgeShape: Shape {
     func path(in rect: CGRect) -> Path {
         var p = Path()
         let midY = rect.midY
-        let leftHalf: CGFloat = 1.4
-        let rightHalf: CGFloat = min(6.5, rect.height * 0.46)
-        p.move(to: CGPoint(x: rect.minX + 4, y: midY - leftHalf))
+        let leftHalf: CGFloat = 1.5
+        let rightHalf: CGFloat = min(6.2, rect.height * 0.44)
+        p.move(to: CGPoint(x: rect.minX + 3, y: midY - leftHalf))
         p.addLine(to: CGPoint(x: rect.maxX - 4, y: midY - rightHalf))
         p.addArc(
             center: CGPoint(x: rect.maxX - 4, y: midY),
@@ -128,9 +144,9 @@ private struct TaperedWedgeShape: Shape {
             endAngle: .degrees(90),
             clockwise: false
         )
-        p.addLine(to: CGPoint(x: rect.minX + 4, y: midY + leftHalf))
+        p.addLine(to: CGPoint(x: rect.minX + 3, y: midY + leftHalf))
         p.addArc(
-            center: CGPoint(x: rect.minX + 4, y: midY),
+            center: CGPoint(x: rect.minX + 3, y: midY),
             radius: leftHalf,
             startAngle: .degrees(90),
             endAngle: .degrees(270),
@@ -141,7 +157,7 @@ private struct TaperedWedgeShape: Shape {
     }
 }
 
-// MARK: - Color Swatch Popover + Native Mac Custom Color Picker
+// MARK: - Apple Color Well Swatch + Native Mac Custom Color Picker
 public struct DesignerColorSwatchButton: View {
     @Binding var selectedColor: NSColor
     @Binding var isPresented: Bool
@@ -150,22 +166,34 @@ public struct DesignerColorSwatchButton: View {
 
     public var body: some View {
         Button(action: { isPresented.toggle() }) {
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                .fill(Color(selectedColor))
-                .frame(width: 22, height: 22)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        .stroke(Color.primary.opacity(0.24), lineWidth: 1.0)
-                )
-                .shadow(color: Color.black.opacity(0.08), radius: 1.5, y: 0.5)
+            ZStack {
+                Circle()
+                    .fill(Color(nsColor: .controlBackgroundColor))
+                    .frame(width: 24, height: 24)
+                    .overlay(Circle().stroke(Color.primary.opacity(0.18), lineWidth: 0.75))
+
+                Circle()
+                    .fill(Color(selectedColor))
+                    .frame(width: 18, height: 18)
+                    .overlay(
+                        Circle()
+                            .stroke(
+                                selectedColor.relativeLuminance > 0.85
+                                    ? Color.black.opacity(0.16)
+                                    : Color.black.opacity(0.08),
+                                lineWidth: 0.75
+                            )
+                    )
+            }
+            .shadow(color: Color.black.opacity(0.06), radius: 1, y: 0.5)
         }
         .buttonStyle(.plain)
-        .help("Choose color or open custom color picker")
+        .help("Choose color or open custom color wheel")
         .popover(isPresented: $isPresented, arrowEdge: .bottom) {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(alignment: .firstTextBaseline) {
                     Text("Color")
-                        .font(.system(size: 11.5, weight: .semibold))
+                        .font(.system(size: 12, weight: .semibold))
                         .foregroundColor(.primary)
                     Spacer()
                     Text(verbatim: selectedColor.hexString)
@@ -174,7 +202,7 @@ public struct DesignerColorSwatchButton: View {
                 }
 
                 // Curated 4x2 Designer Swatches
-                LazyVGrid(columns: Array(repeating: GridItem(.fixed(24), spacing: 8), count: 4), spacing: 8) {
+                LazyVGrid(columns: Array(repeating: GridItem(.fixed(26), spacing: 8), count: 4), spacing: 8) {
                     ForEach(DesignerColorPreset.curated) { preset in
                         let isSelected = selectedColor.hexString == preset.hex
                         Button(action: {
@@ -184,12 +212,17 @@ public struct DesignerColorSwatchButton: View {
                             isPresented = false
                         }) {
                             ZStack {
-                                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                RoundedRectangle(cornerRadius: 7, style: .continuous)
                                     .fill(preset.color)
-                                    .frame(width: 24, height: 24)
+                                    .frame(width: 26, height: 26)
                                     .overlay(
-                                        RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                            .stroke(Color.primary.opacity(isSelected ? 0.85 : 0.18), lineWidth: isSelected ? 1.8 : 0.8)
+                                        RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                            .stroke(
+                                                isSelected
+                                                    ? Color(red: 10/255, green: 132/255, blue: 255/255)
+                                                    : Color.primary.opacity(preset.nsColor.relativeLuminance > 0.85 ? 0.22 : 0.14),
+                                                lineWidth: isSelected ? 2.0 : 0.75
+                                            )
                                     )
                                 if isSelected {
                                     Image(systemName: "checkmark")
@@ -220,47 +253,51 @@ public struct DesignerColorSwatchButton: View {
                 }) {
                     HStack(spacing: 6) {
                         Image(systemName: "eyedropper")
-                            .font(.system(size: 11, weight: .medium))
+                            .font(.system(size: 11.5, weight: .medium))
+                            .foregroundColor(Color(red: 10/255, green: 132/255, blue: 255/255))
                         Text("Custom Color...")
                             .font(.system(size: 11.5, weight: .medium))
                         Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 9.5, weight: .semibold))
+                            .foregroundColor(.secondary.opacity(0.6))
                     }
                     .foregroundColor(.primary)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 5)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
                     .background(
-                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        RoundedRectangle(cornerRadius: 7, style: .continuous)
                             .fill(Color.primary.opacity(0.06))
                     )
                 }
                 .buttonStyle(.plain)
             }
             .padding(12)
-            .frame(width: 148)
+            .frame(width: 158)
         }
     }
 }
 
-// MARK: - Custom Arrow Style Vector Glyphs (Matching Reference UI)
+// MARK: - Custom Arrow Style Vector Glyphs
 private struct ArrowStyleGlyph: View {
     let style: ArrowStyle
     let isActive: Bool
 
     var body: some View {
         Canvas { ctx, size in
-            let fg: Color = isActive ? .white : .primary.opacity(0.82)
+            let fg: Color = isActive ? Color(red: 10/255, green: 132/255, blue: 255/255) : .primary.opacity(0.78)
             let midY = size.height / 2
 
             switch style {
             case .tapered:
                 var p = Path()
-                p.move(to: CGPoint(x: 3, y: midY - 1))
-                p.addLine(to: CGPoint(x: 11, y: midY - 2.6))
-                p.addLine(to: CGPoint(x: 10, y: midY - 5.2))
+                p.move(to: CGPoint(x: 3, y: midY - 0.9))
+                p.addLine(to: CGPoint(x: 11, y: midY - 2.4))
+                p.addLine(to: CGPoint(x: 10, y: midY - 5.0))
                 p.addLine(to: CGPoint(x: 17, y: midY))
-                p.addLine(to: CGPoint(x: 10, y: midY + 5.2))
-                p.addLine(to: CGPoint(x: 11, y: midY + 2.6))
-                p.addLine(to: CGPoint(x: 3, y: midY + 1))
+                p.addLine(to: CGPoint(x: 10, y: midY + 5.0))
+                p.addLine(to: CGPoint(x: 11, y: midY + 2.4))
+                p.addLine(to: CGPoint(x: 3, y: midY + 0.9))
                 p.closeSubpath()
                 ctx.fill(p, with: .color(fg))
 
@@ -272,8 +309,8 @@ private struct ArrowStyleGlyph: View {
 
                 var head = Path()
                 head.move(to: CGPoint(x: 17, y: midY))
-                head.addLine(to: CGPoint(x: 11.5, y: midY - 3.6))
-                head.addLine(to: CGPoint(x: 11.5, y: midY + 3.6))
+                head.addLine(to: CGPoint(x: 11.5, y: midY - 3.5))
+                head.addLine(to: CGPoint(x: 11.5, y: midY + 3.5))
                 head.closeSubpath()
                 ctx.fill(head, with: .color(fg))
 
@@ -284,9 +321,9 @@ private struct ArrowStyleGlyph: View {
                 ctx.stroke(line, with: .color(fg), style: StrokeStyle(lineWidth: 1.4, lineCap: .round))
 
                 var chev = Path()
-                chev.move(to: CGPoint(x: 12, y: midY - 3.5))
+                chev.move(to: CGPoint(x: 12, y: midY - 3.4))
                 chev.addLine(to: CGPoint(x: 16.5, y: midY))
-                chev.addLine(to: CGPoint(x: 12, y: midY + 3.5))
+                chev.addLine(to: CGPoint(x: 12, y: midY + 3.4))
                 ctx.stroke(chev, with: .color(fg), style: StrokeStyle(lineWidth: 1.4, lineCap: .round, lineJoin: .round))
 
             case .doubleEnded:
@@ -297,15 +334,15 @@ private struct ArrowStyleGlyph: View {
 
                 var leftH = Path()
                 leftH.move(to: CGPoint(x: 2.5, y: midY))
-                leftH.addLine(to: CGPoint(x: 6.5, y: midY - 3.2))
-                leftH.addLine(to: CGPoint(x: 6.5, y: midY + 3.2))
+                leftH.addLine(to: CGPoint(x: 6.5, y: midY - 3.1))
+                leftH.addLine(to: CGPoint(x: 6.5, y: midY + 3.1))
                 leftH.closeSubpath()
                 ctx.fill(leftH, with: .color(fg))
 
                 var rightH = Path()
                 rightH.move(to: CGPoint(x: 17.5, y: midY))
-                rightH.addLine(to: CGPoint(x: 13.5, y: midY - 3.2))
-                rightH.addLine(to: CGPoint(x: 13.5, y: midY + 3.2))
+                rightH.addLine(to: CGPoint(x: 13.5, y: midY - 3.1))
+                rightH.addLine(to: CGPoint(x: 13.5, y: midY + 3.1))
                 rightH.closeSubpath()
                 ctx.fill(rightH, with: .color(fg))
             }
@@ -314,11 +351,29 @@ private struct ArrowStyleGlyph: View {
     }
 }
 
-// MARK: - Floating Contextual Properties Inspector Bar (Figma / Shottr Style)
+// MARK: - Apple HIG Segmented Pill Plate Helper
+private struct AppleSegmentedSelectionPlate: View {
+    let isSelected: Bool
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: 6, style: .continuous)
+            .fill(isSelected ? Color(nsColor: .controlBackgroundColor) : Color.clear)
+            .overlay(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .stroke(isSelected ? Color.primary.opacity(0.10) : Color.clear, lineWidth: 0.6)
+            )
+            .shadow(color: isSelected ? Color.black.opacity(0.08) : .clear, radius: 1.5, y: 0.5)
+    }
+}
+
+// MARK: - Floating Contextual Properties Inspector Bar (Apple HIG / Figma Craft)
 public struct DesignerInspectorBar: View {
     @ObservedObject var state: ScreenshotEditorState
 
     private var activeInspectorTool: AnnotationTool? {
+        if state.isEditingInlineText {
+            return .text
+        }
         if let idx = state.selectedAnnotationIndex, idx >= 0 && idx < state.annotations.count {
             return state.annotations[idx].tool
         }
@@ -350,22 +405,22 @@ public struct DesignerInspectorBar: View {
                     EmptyView()
                 }
             }
-            .padding(.horizontal, 10)
+            .padding(.horizontal, 12)
             .padding(.vertical, 6)
             .background(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
                     .fill(.regularMaterial)
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .stroke(Color.primary.opacity(0.10), lineWidth: 0.8)
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(Color.primary.opacity(0.11), lineWidth: 0.6)
             )
-            .shadow(color: Color.black.opacity(0.16), radius: 12, y: 4)
+            .shadow(color: Color.black.opacity(0.12), radius: 14, y: 5)
             .transition(.opacity.combined(with: .move(edge: .top)))
         }
     }
 
-    // MARK: - Arrow Inspector (Color | Tapered Width | 4 Arrow Styles | Flip Ends)
+    // MARK: - Arrow Inspector
     private var arrowControls: some View {
         HStack(spacing: 10) {
             DesignerColorSwatchButton(
@@ -375,14 +430,18 @@ public struct DesignerInspectorBar: View {
                 onColorSelected: { state.applyColor($0, for: .arrow) }
             )
 
+            Divider().frame(height: 16)
+
             TaperedThicknessSlider(
                 value: state.activeWidthBinding(for: .arrow),
                 range: 2.0...10.0,
+                unit: "px",
                 onBeginEdit: { state.beginPropertyEditUndoIfNeeded() },
                 onValueChanged: { state.applyStrokeWidth($0, for: .arrow) }
             )
 
-            // 4 Arrow Styles Segmented Control
+            Divider().frame(height: 16)
+
             HStack(spacing: 2) {
                 ForEach(ArrowStyle.allCases) { style in
                     let isSelected = state.currentArrowStyle == style
@@ -391,26 +450,23 @@ public struct DesignerInspectorBar: View {
                         state.applyArrowStyle(style)
                     }) {
                         ArrowStyleGlyph(style: style, isActive: isSelected)
-                            .frame(width: 26, height: 22)
-                            .background(
-                                RoundedRectangle(cornerRadius: 5, style: .continuous)
-                                    .fill(isSelected ? Color(red: 10/255, green: 132/255, blue: 255/255) : Color.clear)
-                            )
+                            .frame(width: 28, height: 24)
+                            .background(AppleSegmentedSelectionPlate(isSelected: isSelected))
                     }
                     .buttonStyle(.plain)
                     .help(style.rawValue)
                 }
             }
             .padding(2)
-            .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(Color.primary.opacity(0.06)))
+            .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Color.primary.opacity(0.06)))
 
             if state.selectedAnnotationIndex != nil {
                 Button(action: { state.flipSelectedArrowDirection() }) {
                     Image(systemName: "arrow.left.arrow.right")
                         .font(.system(size: 11, weight: .medium))
-                        .foregroundColor(.primary.opacity(0.8))
-                        .frame(width: 24, height: 22)
-                        .background(RoundedRectangle(cornerRadius: 5, style: .continuous).fill(Color.primary.opacity(0.06)))
+                        .foregroundColor(.primary.opacity(0.82))
+                        .frame(width: 26, height: 24)
+                        .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(Color.primary.opacity(0.06)))
                 }
                 .buttonStyle(.plain)
                 .help("Flip arrow direction")
@@ -418,7 +474,7 @@ public struct DesignerInspectorBar: View {
         }
     }
 
-    // MARK: - Text Inspector (Color | Font Size Slider | Plain vs Badge Pill vs Speech Quote)
+    // MARK: - Text Inspector
     private var textControls: some View {
         HStack(spacing: 10) {
             DesignerColorSwatchButton(
@@ -428,12 +484,17 @@ public struct DesignerInspectorBar: View {
                 onColorSelected: { state.applyColor($0, for: .text) }
             )
 
+            Divider().frame(height: 16)
+
             TaperedThicknessSlider(
                 value: state.activeWidthBinding(for: .text),
-                range: 11.0...34.0,
+                range: 11.0...36.0,
+                unit: "pt",
                 onBeginEdit: { state.beginPropertyEditUndoIfNeeded() },
                 onValueChanged: { state.applyStrokeWidth($0, for: .text) }
             )
+
+            Divider().frame(height: 16)
 
             HStack(spacing: 2) {
                 ForEach(TextStyle.allCases) { style in
@@ -446,42 +507,61 @@ public struct DesignerInspectorBar: View {
                             Image(systemName: textStyleIcon(style))
                                 .font(.system(size: 11, weight: .medium))
                             Text(textStyleShortLabel(style))
-                                .font(.system(size: 11, weight: .medium))
+                                .font(.system(size: 11.5, weight: isSelected ? .semibold : .medium))
                         }
-                        .foregroundColor(isSelected ? .white : .primary.opacity(0.85))
-                        .padding(.horizontal, 8)
-                        .frame(height: 22)
-                        .background(
-                            RoundedRectangle(cornerRadius: 5, style: .continuous)
-                                .fill(isSelected ? Color(red: 10/255, green: 132/255, blue: 255/255) : Color.clear)
-                        )
+                        .foregroundColor(isSelected ? Color(red: 10/255, green: 132/255, blue: 255/255) : .primary.opacity(0.82))
+                        .padding(.horizontal, 9)
+                        .frame(height: 24)
+                        .background(AppleSegmentedSelectionPlate(isSelected: isSelected))
                     }
                     .buttonStyle(.plain)
                     .help(style.rawValue)
                 }
             }
             .padding(2)
-            .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(Color.primary.opacity(0.06)))
+            .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Color.primary.opacity(0.06)))
+
+            if state.isEditingInlineText {
+                Divider().frame(height: 16)
+
+                Button(action: { state.onCommitInlineText?() }) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 10.5, weight: .bold))
+                        Text("Done")
+                            .font(.system(size: 11, weight: .semibold))
+                    }
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 9)
+                    .frame(height: 24)
+                    .background(
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .fill(Color(red: 10/255, green: 132/255, blue: 255/255))
+                    )
+                }
+                .buttonStyle(.plain)
+                .help("Finish typing (Return)")
+            }
         }
     }
 
     private func textStyleIcon(_ style: TextStyle) -> String {
         switch style {
         case .plain: return "textformat"
-        case .card: return "rectangle.fill"
-        case .quoteBubble: return "text.bubble.fill"
+        case .card: return "capsule"
+        case .quoteBubble: return "quote.bubble"
         }
     }
 
     private func textStyleShortLabel(_ style: TextStyle) -> String {
         switch style {
-        case .plain: return "Text"
+        case .plain: return "Plain"
         case .card: return "Pill"
         case .quoteBubble: return "Quote"
         }
     }
 
-    // MARK: - Rectangle Inspector (Color | Stroke Width | Stroke vs Tinted vs Solid | Corners | Size Tag)
+    // MARK: - Rectangle Inspector
     private var rectangleControls: some View {
         HStack(spacing: 10) {
             DesignerColorSwatchButton(
@@ -492,15 +572,19 @@ public struct DesignerInspectorBar: View {
             )
 
             if state.currentRectFillMode != .solid {
+                Divider().frame(height: 16)
+
                 TaperedThicknessSlider(
                     value: state.activeWidthBinding(for: .rectangle),
                     range: 1.0...12.0,
+                    unit: "px",
                     onBeginEdit: { state.beginPropertyEditUndoIfNeeded() },
                     onValueChanged: { state.applyStrokeWidth($0, for: .rectangle) }
                 )
             }
 
-            // Fill Mode Segmented Control: Stroke | Tint | Solid
+            Divider().frame(height: 16)
+
             HStack(spacing: 2) {
                 ForEach(RectFillMode.allCases) { mode in
                     let isSelected = state.currentRectFillMode == mode
@@ -512,54 +596,52 @@ public struct DesignerInspectorBar: View {
                             Image(systemName: rectFillIcon(mode))
                                 .font(.system(size: 11, weight: .medium))
                             Text(mode.rawValue)
-                                .font(.system(size: 11, weight: .medium))
+                                .font(.system(size: 11.5, weight: isSelected ? .semibold : .medium))
                         }
-                        .foregroundColor(isSelected ? .white : .primary.opacity(0.85))
-                        .padding(.horizontal, 7)
-                        .frame(height: 22)
-                        .background(
-                            RoundedRectangle(cornerRadius: 5, style: .continuous)
-                                .fill(isSelected ? Color(red: 10/255, green: 132/255, blue: 255/255) : Color.clear)
-                        )
+                        .foregroundColor(isSelected ? Color(red: 10/255, green: 132/255, blue: 255/255) : .primary.opacity(0.82))
+                        .padding(.horizontal, 8)
+                        .frame(height: 24)
+                        .background(AppleSegmentedSelectionPlate(isSelected: isSelected))
                     }
                     .buttonStyle(.plain)
                 }
             }
             .padding(2)
-            .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(Color.primary.opacity(0.06)))
+            .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Color.primary.opacity(0.06)))
 
-            // Corner Radius Toggle: Sharp (0px) vs Rounded (8px)
-            Button(action: {
-                state.beginPropertyEditUndoIfNeeded()
-                let nextRadius: CGFloat = state.currentRectCornerRadius > 1 ? 0 : 8
-                state.applyCornerRadius(nextRadius)
-            }) {
-                Image(systemName: state.currentRectCornerRadius > 1 ? "app" : "square")
-                    .font(.system(size: 11.5, weight: .medium))
-                    .foregroundColor(state.currentRectCornerRadius > 1 ? Color(red: 10/255, green: 132/255, blue: 255/255) : .primary.opacity(0.8))
-                    .frame(width: 24, height: 22)
-                    .background(RoundedRectangle(cornerRadius: 5, style: .continuous).fill(Color.primary.opacity(0.06)))
-            }
-            .buttonStyle(.plain)
-            .help(state.currentRectCornerRadius > 1 ? "Rounded corners (8px) — Click for sharp" : "Sharp corners — Click for rounded (8px)")
+            Divider().frame(height: 16)
 
-            // Show Width × Height Size Badge Toggle
-            Button(action: {
-                state.beginPropertyEditUndoIfNeeded()
-                state.toggleRectSizeTag()
-            }) {
-                Text("W×H")
-                    .font(.system(size: 10, weight: .semibold, design: .rounded))
-                    .foregroundColor(state.currentRectShowSizeTag ? .white : .primary.opacity(0.8))
-                    .padding(.horizontal, 6)
-                    .frame(height: 22)
-                    .background(
-                        RoundedRectangle(cornerRadius: 5, style: .continuous)
-                            .fill(state.currentRectShowSizeTag ? Color(red: 10/255, green: 132/255, blue: 255/255) : Color.primary.opacity(0.06))
-                    )
+            HStack(spacing: 4) {
+                Button(action: {
+                    state.beginPropertyEditUndoIfNeeded()
+                    let nextRadius: CGFloat = state.currentRectCornerRadius > 1 ? 0 : 8
+                    state.applyCornerRadius(nextRadius)
+                }) {
+                    Image(systemName: state.currentRectCornerRadius > 1 ? "app" : "square")
+                        .font(.system(size: 11.5, weight: .medium))
+                        .foregroundColor(state.currentRectCornerRadius > 1 ? Color(red: 10/255, green: 132/255, blue: 255/255) : .primary.opacity(0.8))
+                        .frame(width: 26, height: 24)
+                        .background(AppleSegmentedSelectionPlate(isSelected: state.currentRectCornerRadius > 1))
+                }
+                .buttonStyle(.plain)
+                .help(state.currentRectCornerRadius > 1 ? "Rounded corners (8px) — Click for sharp" : "Sharp corners — Click for rounded (8px)")
+
+                Button(action: {
+                    state.beginPropertyEditUndoIfNeeded()
+                    state.toggleRectSizeTag()
+                }) {
+                    Text("W×H")
+                        .font(.system(size: 10, weight: .semibold, design: .rounded))
+                        .foregroundColor(state.currentRectShowSizeTag ? Color(red: 10/255, green: 132/255, blue: 255/255) : .primary.opacity(0.8))
+                        .padding(.horizontal, 7)
+                        .frame(height: 24)
+                        .background(AppleSegmentedSelectionPlate(isSelected: state.currentRectShowSizeTag))
+                }
+                .buttonStyle(.plain)
+                .help("Show width × height dimension badge")
             }
-            .buttonStyle(.plain)
-            .help("Show width × height dimension badge")
+            .padding(2)
+            .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Color.primary.opacity(0.06)))
         }
     }
 
@@ -581,8 +663,10 @@ public struct DesignerInspectorBar: View {
                 onColorSelected: { state.applyColor($0, for: .distance) }
             )
 
-            Text("H / V UI edge snap • Hold ⌘ for free pixel")
-                .font(.system(size: 11, weight: .medium))
+            Divider().frame(height: 16)
+
+            Text("H / V UI edge snap  •  Hold ⌘ for free pixel")
+                .font(.system(size: 11.5, weight: .medium))
                 .foregroundColor(.secondary)
         }
     }
@@ -596,8 +680,9 @@ public struct DesignerInspectorBar: View {
                 onBeginEdit: { state.beginPropertyEditUndoIfNeeded() },
                 onColorSelected: { state.applyColor($0, for: .numberedPin) }
             )
+            Divider().frame(height: 16)
             Text("Click anywhere to drop pin #\(state.nextPinNumber)")
-                .font(.system(size: 11, weight: .medium))
+                .font(.system(size: 11.5, weight: .medium))
                 .foregroundColor(.secondary)
         }
     }
@@ -610,9 +695,11 @@ public struct DesignerInspectorBar: View {
                 onBeginEdit: { state.beginPropertyEditUndoIfNeeded() },
                 onColorSelected: { state.applyColor($0, for: .pencil) }
             )
+            Divider().frame(height: 16)
             TaperedThicknessSlider(
                 value: state.activeWidthBinding(for: .pencil),
                 range: 4.0...28.0,
+                unit: "px",
                 onBeginEdit: { state.beginPropertyEditUndoIfNeeded() },
                 onValueChanged: { state.applyStrokeWidth($0, for: .pencil) }
             )
@@ -622,10 +709,10 @@ public struct DesignerInspectorBar: View {
     private var blurControls: some View {
         HStack(spacing: 8) {
             Image(systemName: "checkerboard.rectangle")
-                .font(.system(size: 11.5))
+                .font(.system(size: 12))
                 .foregroundColor(.secondary)
-            Text("Drag across sensitive text to redact with mosaic pixels")
-                .font(.system(size: 11, weight: .medium))
+            Text("Drag across sensitive text or fields to redact with mosaic pixels")
+                .font(.system(size: 11.5, weight: .medium))
                 .foregroundColor(.secondary)
         }
     }

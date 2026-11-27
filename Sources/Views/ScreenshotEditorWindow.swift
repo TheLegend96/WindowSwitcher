@@ -42,6 +42,7 @@ public final class ScreenshotEditorState: ObservableObject {
     @Published public var nextPinNumber: Int = 1
     @Published public var selectedAnnotationIndex: Int? = nil
     @Published public var isColorPopoverOpen: Bool = false
+    @Published public var isEditingInlineText: Bool = false
 
     public var image: NSImage?
     public var imageSize: CGSize = .zero      // Logical points (CSS px)
@@ -60,7 +61,18 @@ public final class ScreenshotEditorState: ObservableObject {
     public var onRequestZoomFit: (() -> Void)?
     public var onRequestZoomActual: (() -> Void)?
     public var onCancelTextOrSelection: (() -> Void)?
+    public var onCommitInlineText: (() -> Void)?
+    public var onLivePropertyChanged: (() -> Void)?
+    public var onOpenTextEditorAtIndex: ((Int) -> Void)?
     public var onCanvasMutated: (() -> Void)?
+
+    public func selectTool(_ tool: AnnotationTool) {
+        onCommitInlineText?()
+        if let idx = selectedAnnotationIndex, idx < annotations.count, annotations[idx].tool != tool {
+            selectedAnnotationIndex = nil
+        }
+        currentTool = tool
+    }
 
     public func resetHistory() {
         undoHistory.removeAll()
@@ -106,6 +118,23 @@ public final class ScreenshotEditorState: ObservableObject {
         annotations.remove(at: idx)
         selectedAnnotationIndex = nil
         recomputeNextPin()
+        onCanvasMutated?()
+    }
+
+    public func nudgeSelected(dx: CGFloat, dy: CGFloat) {
+        guard let idx = selectedAnnotationIndex, idx >= 0 && idx < annotations.count else { return }
+        beginPropertyEditUndoIfNeeded()
+        annotations[idx].startPoint.x += dx
+        annotations[idx].startPoint.y += dy
+        annotations[idx].endPoint.x += dx
+        annotations[idx].endPoint.y += dy
+        if let cp = annotations[idx].controlPoint {
+            annotations[idx].controlPoint = CGPoint(x: cp.x + dx, y: cp.y + dy)
+        }
+        for i in 0..<annotations[idx].pathPoints.count {
+            annotations[idx].pathPoints[i].x += dx
+            annotations[idx].pathPoints[i].y += dy
+        }
         onCanvasMutated?()
     }
 
@@ -239,6 +268,7 @@ public final class ScreenshotEditorState: ObservableObject {
             annotations[idx].color = color
             onCanvasMutated?()
         }
+        onLivePropertyChanged?()
     }
 
     public func applyStrokeWidth(_ w: CGFloat, for tool: AnnotationTool) {
@@ -253,6 +283,7 @@ public final class ScreenshotEditorState: ObservableObject {
             annotations[idx].strokeWidth = w
             onCanvasMutated?()
         }
+        onLivePropertyChanged?()
     }
 
     public func applyArrowStyle(_ style: ArrowStyle) {
@@ -261,6 +292,7 @@ public final class ScreenshotEditorState: ObservableObject {
             annotations[idx].arrowStyle = style
             onCanvasMutated?()
         }
+        onLivePropertyChanged?()
     }
 
     public func flipSelectedArrowDirection() {
@@ -278,6 +310,7 @@ public final class ScreenshotEditorState: ObservableObject {
             annotations[idx].textStyle = style
             onCanvasMutated?()
         }
+        onLivePropertyChanged?()
     }
 
     public func applyRectFillMode(_ mode: RectFillMode) {
@@ -333,6 +366,15 @@ public class ScreenshotEditorWindowController: NSObject, NSWindowDelegate {
 
     public func show(image: NSImage, sourceRect: NSRect, hasEmbeddedShadow: Bool = false, on screen: NSScreen? = nil) {
         let targetScreen = screen ?? NSScreen.main ?? NSScreen.screens[0]
+
+        // Close any previous editor window/live text editor cleanly so duplicate views never overlap
+        state.onCancelTextOrSelection?()
+        removeKeyboardMonitors()
+        if let prev = self.window {
+            prev.delegate = nil
+            prev.orderOut(nil)
+            self.window = nil
+        }
 
         state.image = image
         state.imageSize = image.size
@@ -394,7 +436,7 @@ public class ScreenshotEditorWindowController: NSObject, NSWindowDelegate {
         installKeyboardMonitors()
     }
 
-    public func addSampleAnnotationsForTesting() {
+    public func addSampleAnnotationsForTesting(selectedIndex: Int = 3) {
         let azure = NSColor(red: 10/255, green: 132/255, blue: 255/255, alpha: 1.0)
         let coral = NSColor(red: 255/255, green: 69/255, blue: 58/255, alpha: 1.0)
         let amber = NSColor(red: 255/255, green: 159/255, blue: 10/255, alpha: 1.0)
@@ -405,13 +447,17 @@ public class ScreenshotEditorWindowController: NSObject, NSWindowDelegate {
             CanvasAnnotation(tool: .rectangle, startPoint: CGPoint(x: 80, y: 280), endPoint: CGPoint(x: 360, y: 360), color: amber, strokeWidth: 2.5, rectFillMode: .tinted, cornerRadius: 8, showSizeTag: false),
             CanvasAnnotation(tool: .arrow, startPoint: CGPoint(x: 540, y: 255), endPoint: CGPoint(x: 390, y: 185), color: coral, strokeWidth: 5.5, arrowStyle: .tapered),
             CanvasAnnotation(tool: .arrow, startPoint: CGPoint(x: 410, y: 390), endPoint: CGPoint(x: 540, y: 390), color: azure, strokeWidth: 3.0, arrowStyle: .doubleEnded),
-            CanvasAnnotation(tool: .text, startPoint: CGPoint(x: 545, y: 245), endPoint: CGPoint(x: 545, y: 245), text: "Fix spacing & contrast", color: .white, strokeWidth: 15, textStyle: .quoteBubble),
+            CanvasAnnotation(tool: .text, startPoint: CGPoint(x: 558, y: 242), endPoint: CGPoint(x: 558, y: 242), text: "Fix spacing & contrast", color: .white, strokeWidth: 15, textStyle: .quoteBubble),
             CanvasAnnotation(tool: .numberedPin, startPoint: CGPoint(x: 375, y: 170), endPoint: CGPoint(x: 375, y: 170), number: 1, color: coral),
             CanvasAnnotation(tool: .blur, startPoint: CGPoint(x: 520, y: 428), endPoint: CGPoint(x: 775, y: 468))
         ]
-        state.selectedAnnotationIndex = 3
+        state.selectedAnnotationIndex = max(0, min(selectedIndex, state.annotations.count - 1))
         state.recomputeNextPin()
         state.onCanvasMutated?()
+    }
+
+    public func openInlineTextForTesting(index: Int = 5) {
+        state.onOpenTextEditorAtIndex?(index)
     }
 
     public func close() {
@@ -436,7 +482,7 @@ public class ScreenshotEditorWindowController: NSObject, NSWindowDelegate {
             guard let self, let win = self.window, win.isKeyWindow else { return event }
 
             // Let inline text editor field receive normal typing keys natively (Esc cancels text editor)
-            if win.firstResponder is NSTextView || win.firstResponder is NSTextField {
+            if win.firstResponder is NSTextView || win.firstResponder is NSTextField || self.state.isEditingInlineText {
                 if event.keyCode == 53 {
                     self.state.onCancelTextOrSelection?()
                     return nil
@@ -509,6 +555,18 @@ public class ScreenshotEditorWindowController: NSObject, NSWindowDelegate {
                 case 49: // Space (Pan hold)
                     if !self.state.isSpacePanning { self.state.isSpacePanning = true }
                     return nil
+                case 123, 124, 125, 126: // Arrow Key Precision Nudge (1px, or grid step with Shift)
+                    if self.state.selectedAnnotationIndex != nil {
+                        let step: CGFloat = isShift ? CGFloat(max(8, SettingsManager.shared.gridAuditUnit)) : 1.0
+                        switch event.keyCode {
+                        case 123: self.state.nudgeSelected(dx: -step, dy: 0)
+                        case 124: self.state.nudgeSelected(dx: step, dy: 0)
+                        case 125: self.state.nudgeSelected(dx: 0, dy: step)
+                        case 126: self.state.nudgeSelected(dx: 0, dy: -step)
+                        default: break
+                        }
+                        return nil
+                    }
                 default:
                     break
                 }
@@ -517,21 +575,21 @@ public class ScreenshotEditorWindowController: NSObject, NSWindowDelegate {
             // 3. Single-letter Tool Switching (works reliably regardless of SwiftUI focus)
             if !isCmd && !hasOtherMods && !isShift {
                 switch event.keyCode {
-                case 9:  self.state.currentTool = .pointer; return nil      // V
-                case 2:  self.state.currentTool = .distance; return nil     // D
-                case 0:  self.state.currentTool = .arrow; return nil        // A
-                case 17: self.state.currentTool = .text; return nil         // T
-                case 45: self.state.currentTool = .numberedPin; return nil  // N
+                case 9:  self.state.selectTool(.pointer); return nil      // V
+                case 2:  self.state.selectTool(.distance); return nil     // D
+                case 0:  self.state.selectTool(.arrow); return nil        // A
+                case 17: self.state.selectTool(.text); return nil         // T
+                case 45: self.state.selectTool(.numberedPin); return nil  // N
                 case 15: // R -> Rectangle (sharp border)
                     self.state.rectCornerRadius = 0.0
-                    self.state.currentTool = .rectangle
+                    self.state.selectTool(.rectangle)
                     return nil
                 case 8:  // C -> Rounded Card preset on Rectangle
                     self.state.rectCornerRadius = 8.0
-                    self.state.currentTool = .rectangle
+                    self.state.selectTool(.rectangle)
                     return nil
-                case 35: self.state.currentTool = .pencil; return nil       // P
-                case 11: self.state.currentTool = .blur; return nil         // B
+                case 35: self.state.selectTool(.pencil); return nil       // P
+                case 11: self.state.selectTool(.blur); return nil         // B
                 default: break
                 }
             }
@@ -559,7 +617,7 @@ public class ScreenshotEditorWindowController: NSObject, NSWindowDelegate {
     }
 }
 
-// MARK: - Root View with Unified Toolbar & Floating Contextual Inspector
+// MARK: - Root View with Unified macOS Studio Toolbar & Floating Inspector
 public struct ScreenshotEditorRootView: View {
     @ObservedObject var state: ScreenshotEditorState
     let onClose: () -> Void
@@ -567,23 +625,24 @@ public struct ScreenshotEditorRootView: View {
     public var body: some View {
         VStack(spacing: 0) {
             toolbarHeader
-                .frame(height: 54)
+                .frame(height: 52)
                 .background(
                     Rectangle()
-                        .fill(.ultraThinMaterial)
-                        .overlay(
+                        .fill(.regularMaterial)
+                        .overlay(alignment: .bottom) {
                             Rectangle()
-                                .stroke(Color.primary.opacity(0.08), lineWidth: 0.5)
-                        )
+                                .fill(Color.primary.opacity(0.08))
+                                .frame(height: 0.5)
+                        }
                 )
 
             ZStack(alignment: .top) {
                 ScreenshotEditorCanvasRepresentable(state: state)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-                // Contextual Floating Inspector Bar (Figma / Shottr Style)
+                // Contextual Floating Inspector Bar (Apple HIG / Figma Craft)
                 DesignerInspectorBar(state: state)
-                    .padding(.top, 10)
+                    .padding(.top, 12)
             }
         }
         .edgesIgnoringSafeArea(.top)
@@ -595,11 +654,11 @@ public struct ScreenshotEditorRootView: View {
 
     // MARK: - Toolbar Header
     private var toolbarHeader: some View {
-        HStack(spacing: 10) {
-            Spacer().frame(width: 68)
+        HStack(spacing: 12) {
+            Spacer().frame(width: 70)
 
-            // Left Cluster: Copy, Save, Pin, Undo, Redo
-            HStack(spacing: 5) {
+            // Left Cluster: Clean Borderless Apple Toolbar Actions
+            HStack(spacing: 4) {
                 toolbarIconButton(icon: "doc.on.doc", tooltip: "Copy annotated image (⌘C)") {
                     copyFlattenedImage()
                 }
@@ -614,7 +673,7 @@ public struct ScreenshotEditorRootView: View {
                     state.onRequestTogglePin?()
                 }
 
-                Divider().frame(height: 16).padding(.horizontal, 2)
+                Divider().frame(height: 16).padding(.horizontal, 4)
 
                 toolbarIconButton(
                     icon: "arrow.uturn.backward",
@@ -634,75 +693,81 @@ public struct ScreenshotEditorRootView: View {
 
             Spacer()
 
-            // Center Cluster: Clean Tool Bar
-            HStack(spacing: 3) {
+            // Center Cluster: Segmented Studio Tool Dock
+            HStack(spacing: 2) {
                 ForEach(AnnotationTool.allCases) { tool in
+                    let isSelected = state.currentTool == tool
                     Button(action: {
-                        state.selectedAnnotationIndex = nil
-                        state.currentTool = tool
+                        state.selectTool(tool)
                     }) {
                         Image(systemName: tool.icon)
-                            .font(.system(size: 13.5, weight: state.currentTool == tool ? .semibold : .regular))
-                            .foregroundColor(state.currentTool == tool ? Color(red: 10/255, green: 132/255, blue: 255/255) : .primary.opacity(0.85))
+                            .font(.system(size: 13.5, weight: isSelected ? .semibold : .regular))
+                            .foregroundColor(isSelected ? Color(red: 10/255, green: 132/255, blue: 255/255) : .primary.opacity(0.82))
                             .frame(width: 30, height: 26)
                             .background(
-                                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                    .fill(state.currentTool == tool ? Color(red: 10/255, green: 132/255, blue: 255/255).opacity(0.12) : Color.clear)
+                                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                    .fill(isSelected ? Color(nsColor: .controlBackgroundColor) : Color.clear)
+                                    .shadow(color: isSelected ? Color.black.opacity(0.08) : .clear, radius: 1.5, y: 0.5)
                             )
                             .overlay(
-                                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                    .stroke(state.currentTool == tool ? Color(red: 10/255, green: 132/255, blue: 255/255).opacity(0.35) : Color.clear, lineWidth: 0.8)
+                                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                    .stroke(isSelected ? Color.primary.opacity(0.10) : Color.clear, lineWidth: 0.5)
                             )
                     }
                     .buttonStyle(.plain)
                     .help(tool.tooltip)
                 }
             }
-            .padding(.horizontal, 5)
-            .padding(.vertical, 3)
-            .background(Capsule().fill(Color.primary.opacity(0.04)))
-            .overlay(Capsule().stroke(Color.primary.opacity(0.08), lineWidth: 0.8))
+            .padding(3)
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(Color.primary.opacity(0.05))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .stroke(Color.primary.opacity(0.07), lineWidth: 0.5)
+            )
 
             Spacer()
 
-            // Right Cluster: Hex Loupe + Contrast, Pixels + Points Size, Interactive Zoom
-            HStack(spacing: 10) {
+            // Right Cluster: Hex Loupe + Contrast, Pixels/Points Size, Compact Zoom Pill
+            HStack(spacing: 12) {
                 Button(action: {
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(state.hoveredHexColor, forType: .string)
                     ToastHUDController.shared.showSimpleToast(message: "Copied \(state.hoveredHexColor)", icon: "checkmark")
                 }) {
-                    HStack(spacing: 6) {
+                    HStack(spacing: 7) {
                         if let bg = state.pinnedBgHexColor {
                             HStack(spacing: -4) {
                                 Circle().fill(Color(hex: bg) ?? .black)
-                                    .frame(width: 12, height: 12)
-                                    .overlay(Circle().stroke(Color.white.opacity(0.6), lineWidth: 0.8))
+                                    .frame(width: 13, height: 13)
+                                    .overlay(Circle().stroke(Color.white.opacity(0.65), lineWidth: 0.8))
                                 Circle().fill(Color(hex: state.hoveredHexColor) ?? .blue)
-                                    .frame(width: 12, height: 12)
+                                    .frame(width: 13, height: 13)
                                     .overlay(Circle().stroke(Color.primary.opacity(0.25), lineWidth: 0.6))
                             }
                         } else {
                             Circle()
                                 .fill(Color(hex: state.hoveredHexColor) ?? .blue)
-                                .frame(width: 12, height: 12)
-                                .overlay(Circle().stroke(Color.primary.opacity(0.2), lineWidth: 0.6))
+                                .frame(width: 13, height: 13)
+                                .overlay(Circle().stroke(Color.primary.opacity(0.22), lineWidth: 0.7))
                         }
 
-                        VStack(alignment: .leading, spacing: 0) {
+                        VStack(alignment: .leading, spacing: 1) {
                             Text(verbatim: state.hoveredHexColor)
-                                .font(.system(size: 10.5, weight: .bold, design: .monospaced))
+                                .font(.system(size: 11, weight: .semibold, design: .monospaced))
                                 .foregroundColor(.primary)
                                 .lineLimit(1)
 
                             if let contrast = state.contrastInfo {
                                 Text(verbatim: String(format: "%.1f:1 %@", contrast.ratio, contrast.badge))
-                                    .font(.system(size: 8.5, weight: .semibold))
+                                    .font(.system(size: 9.5, weight: .semibold))
                                     .foregroundColor(contrast.passedAA ? Color(red: 48/255, green: 209/255, blue: 88/255) : Color(red: 255/255, green: 159/255, blue: 10/255))
                                     .lineLimit(1)
                             } else {
                                 Text("Tab to copy")
-                                    .font(.system(size: 8.5))
+                                    .font(.system(size: 9.5))
                                     .foregroundColor(.secondary)
                                     .lineLimit(1)
                             }
@@ -715,14 +780,14 @@ public struct ScreenshotEditorRootView: View {
 
                 Divider().frame(height: 18)
 
-                VStack(alignment: .leading, spacing: 0) {
+                VStack(alignment: .leading, spacing: 1) {
                     Text(verbatim: "\(Int(state.pixelSize.width))×\(Int(state.pixelSize.height)) px")
-                        .font(.system(size: 10.5, weight: .semibold, design: .rounded))
+                        .font(.system(size: 11, weight: .medium, design: .rounded))
                         .monospacedDigit()
                         .foregroundColor(.primary)
                         .lineLimit(1)
                     Text(verbatim: "\(Int(state.imageSize.width))×\(Int(state.imageSize.height)) pt")
-                        .font(.system(size: 8.5))
+                        .font(.system(size: 9.5))
                         .monospacedDigit()
                         .foregroundColor(.secondary)
                         .lineLimit(1)
@@ -738,23 +803,23 @@ public struct ScreenshotEditorRootView: View {
                     Button("Zoom In 25% (⌘+)") { state.onRequestZoomBy?(1.25) }
                     Button("Zoom Out 25% (⌘-)") { state.onRequestZoomBy?(0.80) }
                 } label: {
-                    VStack(alignment: .leading, spacing: 0) {
-                        Text(verbatim: "\(Int(round(state.effectiveDisplayScale * 100)))%")
-                            .font(.system(size: 10.5, weight: .semibold, design: .rounded))
-                            .monospacedDigit()
-                            .foregroundColor(.primary)
-                            .lineLimit(1)
-                        Text("Zoom")
-                            .font(.system(size: 8.5))
-                            .foregroundColor(.secondary)
-                            .lineLimit(1)
-                    }
-                    .padding(.horizontal, 4)
-                    .padding(.vertical, 2)
-                    .fixedSize(horizontal: true, vertical: false)
+                    Text(verbatim: "\(Int(round(state.effectiveDisplayScale * 100)))%")
+                        .font(.system(size: 11, weight: .semibold, design: .rounded))
+                        .monospacedDigit()
+                        .foregroundColor(.primary)
                 }
                 .menuStyle(.borderlessButton)
                 .fixedSize()
+                .padding(.horizontal, 8)
+                .frame(height: 26)
+                .background(
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .fill(Color.primary.opacity(0.05))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .stroke(Color.primary.opacity(0.08), lineWidth: 0.5)
+                )
                 .help("Scroll or pinch to zoom under cursor (⌘+ / ⌘- / ⌘0)")
             }
             .fixedSize(horizontal: true, vertical: false)
@@ -765,17 +830,18 @@ public struct ScreenshotEditorRootView: View {
     private func toolbarIconButton(icon: String, tooltip: String, isActive: Bool = false, isDisabled: Bool = false, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: icon)
-                .font(.system(size: 13, weight: .medium))
-                .foregroundColor(isActive ? Color(red: 10/255, green: 132/255, blue: 255/255) : .primary.opacity(isDisabled ? 0.3 : 0.85))
-                .frame(width: 28, height: 26)
+                .font(.system(size: 13.5, weight: .medium))
+                .foregroundColor(
+                    isActive
+                        ? Color(red: 10/255, green: 132/255, blue: 255/255)
+                        : .primary.opacity(isDisabled ? 0.28 : 0.84)
+                )
+                .frame(width: 28, height: 28)
                 .background(
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        .fill(isActive ? Color(red: 10/255, green: 132/255, blue: 255/255).opacity(0.12) : Color.primary.opacity(0.04))
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .fill(isActive ? Color(red: 10/255, green: 132/255, blue: 255/255).opacity(0.12) : Color.clear)
                 )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        .stroke(isActive ? Color(red: 10/255, green: 132/255, blue: 255/255).opacity(0.35) : Color.primary.opacity(0.08), lineWidth: 0.8)
-                )
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .disabled(isDisabled)
@@ -844,8 +910,331 @@ private enum DragHandleMode {
     case rectBottomRight
 }
 
+// MARK: - Custom Multi-line AppKit TextView with Full Shortcut Support
+private final class AnnotationTextView: NSTextView {
+    var onCommit: (() -> Void)?
+    var onCancel: (() -> Void)?
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        if flags.contains(.command) {
+            if event.keyCode == 36 || event.keyCode == 76 {
+                onCommit?()
+                return true
+            }
+            switch event.charactersIgnoringModifiers?.lowercased() {
+            case "a": selectAll(nil); return true
+            case "c": copy(nil); return true
+            case "v": paste(nil); return true
+            case "x": cut(nil); return true
+            case "z":
+                if flags.contains(.shift) { undoManager?.redo() } else { undoManager?.undo() }
+                return true
+            default:
+                break
+            }
+        }
+        return super.performKeyEquivalent(with: event)
+    }
+}
+
+// MARK: - WYSIWYG Live Inline Text Callout Editor Container (with Built-in Live Drag Handle)
+private final class InlineTextCalloutContainer: NSView, NSTextViewDelegate {
+    var imageOrigin: CGPoint
+    var scale: CGFloat
+    var textStyle: TextStyle
+    var inkColor: NSColor
+    var fontSize: CGFloat
+
+    let textView: AnnotationTextView
+    private let placeholderLabel: NSTextField
+    private var parentBoundsProvider: () -> NSRect
+    private var viewOriginProvider: (CGPoint) -> NSPoint
+
+    private let topGripReserve: CGFloat = 22
+    private var cardHeightCached: CGFloat = 24
+    private var tailReserveCached: CGFloat = 10
+    private var gripTrackingArea: NSTrackingArea?
+    private var isHoveringGrip: Bool = false
+    private var isDraggingGrip: Bool = false
+    private var dragLastWindowPt: NSPoint?
+
+    var onCommit: ((String) -> Void)?
+    var onCancel: (() -> Void)?
+
+    init(
+        imageOrigin: CGPoint,
+        initialText: String,
+        scale: CGFloat,
+        style: TextStyle,
+        color: NSColor,
+        fontSize: CGFloat,
+        parentBoundsProvider: @escaping () -> NSRect,
+        viewOriginProvider: @escaping (CGPoint) -> NSPoint
+    ) {
+        self.imageOrigin = imageOrigin
+        self.scale = scale
+        self.textStyle = style
+        self.inkColor = color
+        self.fontSize = fontSize
+        self.parentBoundsProvider = parentBoundsProvider
+        self.viewOriginProvider = viewOriginProvider
+
+        self.textView = AnnotationTextView(frame: .zero)
+        self.placeholderLabel = NSTextField(labelWithString: "Type text...")
+
+        super.init(frame: .zero)
+        self.wantsLayer = true
+
+        textView.isRichText = false
+        textView.importsGraphics = false
+        textView.allowsUndo = true
+        textView.drawsBackground = false
+        textView.isFieldEditor = false
+        textView.isHorizontallyResizable = false
+        textView.isVerticallyResizable = false
+        textView.textContainerInset = .zero
+        textView.textContainer?.lineFragmentPadding = 0
+        textView.textContainer?.widthTracksTextView = true
+        textView.delegate = self
+        textView.string = initialText
+        textView.onCommit = { [weak self] in
+            guard let self else { return }
+            self.onCommit?(self.textView.string)
+        }
+        textView.onCancel = { [weak self] in
+            self?.onCancel?()
+        }
+
+        placeholderLabel.isBordered = false
+        placeholderLabel.isBezeled = false
+        placeholderLabel.drawsBackground = false
+        placeholderLabel.isEditable = false
+        placeholderLabel.isSelectable = false
+
+        addSubview(placeholderLabel)
+        addSubview(textView)
+
+        relayout()
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    private var gripHitRect: NSRect {
+        let cy = tailReserveCached + cardHeightCached + 10
+        return NSRect(x: max(0, bounds.midX - 18), y: cy - 10, width: 36, height: 20)
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let t = gripTrackingArea { removeTrackingArea(t) }
+        let t = NSTrackingArea(rect: bounds, options: [.activeAlways, .mouseMoved, .mouseEnteredAndExited, .cursorUpdate], owner: self, userInfo: nil)
+        addTrackingArea(t)
+        gripTrackingArea = t
+    }
+
+    override func resetCursorRects() {
+        super.resetCursorRects()
+        addCursorRect(gripHitRect, cursor: .openHand)
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        let loc = convert(event.locationInWindow, from: nil)
+        let hit = gripHitRect.contains(loc)
+        if hit != isHoveringGrip {
+            isHoveringGrip = hit
+            needsDisplay = true
+        }
+        if hit { NSCursor.openHand.set() }
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        if isHoveringGrip && !isDraggingGrip {
+            isHoveringGrip = false
+            needsDisplay = true
+        }
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        let loc = convert(event.locationInWindow, from: nil)
+        if gripHitRect.contains(loc) {
+            isDraggingGrip = true
+            dragLastWindowPt = event.locationInWindow
+            NSCursor.closedHand.set()
+            needsDisplay = true
+            return
+        }
+        window?.makeFirstResponder(textView)
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard isDraggingGrip, let lastPt = dragLastWindowPt else { return }
+        let curPt = event.locationInWindow
+        let dxView = curPt.x - lastPt.x
+        let dyView = curPt.y - lastPt.y
+        dragLastWindowPt = curPt
+
+        let invScale = 1.0 / max(0.1, scale)
+        imageOrigin = CGPoint(x: imageOrigin.x + dxView * invScale, y: imageOrigin.y - dyView * invScale)
+        relayout()
+        needsDisplay = true
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        if isDraggingGrip {
+            isDraggingGrip = false
+            dragLastWindowPt = nil
+            window?.makeFirstResponder(textView)
+            NSCursor.openHand.set()
+            needsDisplay = true
+            return
+        }
+        super.mouseUp(with: event)
+    }
+
+    func updateStyle(style: TextStyle, color: NSColor, fontSize: CGFloat, scale: CGFloat) {
+        self.textStyle = style
+        self.inkColor = color
+        self.fontSize = fontSize
+        self.scale = scale
+        relayout()
+        needsDisplay = true
+    }
+
+    func relayout() {
+        let rawText = textView.string
+        let sampleText = rawText.isEmpty ? "Type text..." : rawText
+        let metrics = AnnotationRenderer.textMetrics(text: sampleText, fontSize: fontSize, style: textStyle, origin: imageOrigin)
+
+        let scaledFontSize = metrics.fontSize * scale
+        let font = NSFont.systemFont(ofSize: scaledFontSize, weight: textStyle == .plain ? .semibold : .medium)
+        let para = NSMutableParagraphStyle()
+        para.lineSpacing = max(2, round(metrics.fontSize * 0.14)) * scale
+
+        let attrs: [NSAttributedString.Key: Any] = [
+            .font: font,
+            .foregroundColor: inkColor,
+            .paragraphStyle: para
+        ]
+        textView.font = font
+        textView.textColor = inkColor
+        textView.insertionPointColor = inkColor
+        textView.typingAttributes = attrs
+        if let storage = textView.textStorage, storage.length > 0 {
+            storage.setAttributes(attrs, range: NSRange(location: 0, length: storage.length))
+        }
+
+        let extraCaretSpace: CGFloat = 20 * scale
+        let minCardW: CGFloat = 110 * scale
+        let cardW = max(minCardW, metrics.bounds.width * scale + extraCaretSpace)
+        let cardH = max(24 * scale, metrics.bounds.height * scale)
+        let tailReserve: CGFloat = textStyle == .quoteBubble ? 10 * scale : 2
+
+        self.cardHeightCached = cardH
+        self.tailReserveCached = tailReserve
+
+        let viewOrigin = viewOriginProvider(imageOrigin)
+        let parentBounds = parentBoundsProvider()
+        let x = max(12, min(viewOrigin.x, max(12, parentBounds.width - cardW - 14)))
+        let y = max(12, min(viewOrigin.y - cardH - tailReserve, max(12, parentBounds.height - cardH - tailReserve - topGripReserve - 8)))
+
+        self.frame = NSRect(x: x, y: y, width: cardW, height: cardH + tailReserve + topGripReserve)
+
+        let padX = metrics.padX * scale
+        let padY = metrics.padY * scale
+        let textRect = NSRect(
+            x: padX,
+            y: tailReserve + padY,
+            width: max(20, cardW - padX * 2),
+            height: max(14, cardH - padY * 2)
+        )
+        textView.frame = textRect
+        textView.textContainer?.containerSize = NSSize(width: textRect.width, height: 800)
+
+        placeholderLabel.isHidden = !rawText.isEmpty
+        placeholderLabel.font = font
+        placeholderLabel.textColor = inkColor.withAlphaComponent(0.45)
+        placeholderLabel.frame = textRect.insetBy(dx: 0, dy: -1)
+        window?.invalidateCursorRects(for: self)
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        guard let ctx = NSGraphicsContext.current?.cgContext else { return }
+        let tailReserve = tailReserveCached
+        let cardRect = NSRect(x: 1, y: tailReserve, width: bounds.width - 2, height: cardHeightCached - 1)
+        let accent = NSColor(red: 10/255, green: 132/255, blue: 255/255, alpha: 0.90)
+
+        ctx.saveGState()
+        switch textStyle {
+        case .plain:
+            let bg = inkColor.relativeLuminance > 0.45
+                ? NSColor.black.withAlphaComponent(0.28)
+                : NSColor.white.withAlphaComponent(0.42)
+            let p = NSBezierPath(roundedRect: cardRect, xRadius: 6 * scale, yRadius: 6 * scale)
+            bg.setFill()
+            p.fill()
+            accent.setStroke()
+            p.lineWidth = 1.2
+            p.stroke()
+
+        case .card:
+            let bg = inkColor.relativeLuminance > 0.45
+                ? NSColor(red: 22/255, green: 22/255, blue: 26/255, alpha: 0.94)
+                : NSColor(red: 255/255, green: 255/255, blue: 255/255, alpha: 0.97)
+            ctx.setShadow(offset: CGSize(width: 0, height: -3), blur: 10, color: NSColor.black.withAlphaComponent(0.20).cgColor)
+            let p = NSBezierPath(roundedRect: cardRect, xRadius: 8 * scale, yRadius: 8 * scale)
+            bg.setFill()
+            p.fill()
+            ctx.setShadow(offset: .zero, blur: 0, color: nil)
+            accent.setStroke()
+            p.lineWidth = 1.25
+            p.stroke()
+
+        case .quoteBubble:
+            let bg = inkColor.relativeLuminance > 0.45
+                ? NSColor(red: 22/255, green: 22/255, blue: 26/255, alpha: 0.94)
+                : NSColor(red: 255/255, green: 255/255, blue: 255/255, alpha: 0.97)
+            let bubblePath = AnnotationRenderer.speechBubblePath(rect: cardRect, cornerRadius: 9 * scale, tailWidth: 12 * scale, tailHeight: 8.5 * scale)
+            ctx.setShadow(offset: CGSize(width: 0, height: -3), blur: 10, color: NSColor.black.withAlphaComponent(0.22).cgColor)
+            bg.setFill()
+            bubblePath.fill()
+            ctx.setShadow(offset: .zero, blur: 0, color: nil)
+            accent.setStroke()
+            bubblePath.lineWidth = 1.25
+            bubblePath.stroke()
+        }
+        ctx.restoreGState()
+
+        // Live Drag Grip Pill attached cleanly above active text editor
+        let gripCenter = CGPoint(x: bounds.midX, y: tailReserve + cardHeightCached + 10)
+        AnnotationRenderer.drawDragGripPill(center: gripCenter, isHighlighted: isHoveringGrip || isDraggingGrip, in: ctx)
+    }
+
+    func textDidChange(_ notification: Notification) {
+        relayout()
+        needsDisplay = true
+    }
+
+    func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+        if commandSelector == #selector(NSResponder.insertNewline(_:)) {
+            if NSApp.currentEvent?.modifierFlags.contains(.shift) == true {
+                return false
+            }
+            onCommit?(textView.string)
+            return true
+        }
+        if commandSelector == #selector(NSResponder.cancelOperation(_:)) {
+            onCancel?()
+            return true
+        }
+        return false
+    }
+}
+
 // MARK: - Interactive AppKit Vector Canvas
-public class ScreenshotEditorCanvasNSView: NSView, NSTextFieldDelegate {
+public class ScreenshotEditorCanvasNSView: NSView {
     private var state: ScreenshotEditorState
     private var pixelBuffer: PixelInspectBuffer?
     private var cachedImageID: ObjectIdentifier?
@@ -860,8 +1249,14 @@ public class ScreenshotEditorCanvasNSView: NSView, NSTextFieldDelegate {
     private var hoverSmartSpan: PixelInspectBuffer.SmartSpan?
     private var activeSnapGuides: (horizontalY: [CGFloat], verticalX: [CGFloat]) = ([], [])
 
-    private var inlineTextField: NSTextField?
+    private var inlineTextContainer: InlineTextCalloutContainer?
     private var editingAnnotationIndex: Int?
+    private var hoveredAnnotationIndex: Int?
+    private var isHoveringDragGrip: Bool = false
+    private var pendingTextClickIndex: Int?
+    private var pendingPinClickIndex: Int?
+    private var pendingClickDownViewPoint: NSPoint?
+    private var didExceedDragThreshold: Bool = false
 
     private static let ciContext = CIContext(options: [.useSoftwareRenderer: false])
     private var cachedBlurredNSImage: NSImage?
@@ -895,6 +1290,9 @@ public class ScreenshotEditorCanvasNSView: NSView, NSTextFieldDelegate {
         state.onRequestZoomFit = { [weak self] in self?.resetZoomToFit() }
         state.onRequestZoomActual = { [weak self] in self?.zoomToActual100() }
         state.onCancelTextOrSelection = { [weak self] in self?.cancelActiveInteractions() }
+        state.onCommitInlineText = { [weak self] in self?.commitInlineTextIfNeeded() }
+        state.onLivePropertyChanged = { [weak self] in self?.syncInlineTextStyleFromState() }
+        state.onOpenTextEditorAtIndex = { [weak self] idx in self?.beginEditingTextAnnotation(at: idx) }
         state.onCanvasMutated = { [weak self] in self?.needsDisplay = true }
     }
 
@@ -934,7 +1332,15 @@ public class ScreenshotEditorCanvasNSView: NSView, NSTextFieldDelegate {
     }
 
     override public func cursorUpdate(with event: NSEvent) {
-        if isPanningCanvas || state.isSpacePanning {
+        applyActiveCursor()
+    }
+
+    private func applyActiveCursor() {
+        if isPanningCanvas || activeHandleMode == .moveBody || didExceedDragThreshold {
+            NSCursor.closedHand.set()
+            return
+        }
+        if state.isSpacePanning || isHoveringDragGrip {
             NSCursor.openHand.set()
             return
         }
@@ -1032,6 +1438,7 @@ public class ScreenshotEditorCanvasNSView: NSView, NSTextFieldDelegate {
             state.panOffset = CGPoint(x: newCenterX - bounds.midX, y: newCenterY - (bounds.midY - 12))
         }
         state.effectiveDisplayScale = effectiveScale()
+        syncInlineEditorScaleAndPosition()
         needsDisplay = true
     }
 
@@ -1039,6 +1446,7 @@ public class ScreenshotEditorCanvasNSView: NSView, NSTextFieldDelegate {
         state.zoomScale = 1.0
         state.panOffset = .zero
         state.effectiveDisplayScale = effectiveScale()
+        syncInlineEditorScaleAndPosition()
         needsDisplay = true
     }
 
@@ -1047,6 +1455,7 @@ public class ScreenshotEditorCanvasNSView: NSView, NSTextFieldDelegate {
         state.zoomScale = fit > 0 ? (1.0 / fit) : 1.0
         state.panOffset = .zero
         state.effectiveDisplayScale = effectiveScale()
+        syncInlineEditorScaleAndPosition()
         needsDisplay = true
     }
 
@@ -1081,15 +1490,24 @@ public class ScreenshotEditorCanvasNSView: NSView, NSTextFieldDelegate {
 
     override public func mouseExited(with event: NSEvent) {
         hoverSmartSpan = nil
+        hoveredAnnotationIndex = nil
+        isHoveringDragGrip = false
         needsDisplay = true
     }
 
     private func refreshHoverTelemetry(atViewPoint viewLoc: NSPoint, modifiers: NSEvent.ModifierFlags) {
+        let gripHit = hitTestDragGrip(atViewPoint: viewLoc)
+        isHoveringDragGrip = (gripHit != nil)
+
         guard let imgPt = viewPointToImagePoint(viewLoc) else {
             hoverSmartSpan = nil
+            hoveredAnnotationIndex = gripHit
+            applyActiveCursor()
             needsDisplay = true
             return
         }
+
+        hoveredAnnotationIndex = gripHit ?? topAnnotationIndex(at: imgPt)
 
         if let sample = pixelBuffer?.sampleColor(at: imgPt) {
             state.hoveredHexColor = sample.hex
@@ -1097,11 +1515,12 @@ public class ScreenshotEditorCanvasNSView: NSView, NSTextFieldDelegate {
 
         let isOptionHeld = modifiers.contains(.option)
         let showSmart = (state.currentTool == .distance) || (SettingsManager.shared.enableSmartDistance && isOptionHeld)
-        if showSmart && liveAnnotation == nil {
+        if showSmart && liveAnnotation == nil && !isHoveringDragGrip {
             hoverSmartSpan = pixelBuffer?.raycastSpan(at: imgPt)
         } else {
             hoverSmartSpan = nil
         }
+        applyActiveCursor()
         needsDisplay = true
     }
 
@@ -1127,15 +1546,42 @@ public class ScreenshotEditorCanvasNSView: NSView, NSTextFieldDelegate {
     }
 
     override public func mouseDown(with event: NSEvent) {
-        window?.makeFirstResponder(self)
-        commitInlineTextIfNeeded()
-
         let viewLoc = convert(event.locationInWindow, from: nil)
+
+        // If clicking outside an open inline text callout, commit text cleanly first without opening another empty box!
+        if let activeEditor = inlineTextContainer {
+            if !activeEditor.frame.contains(viewLoc) {
+                window?.makeFirstResponder(self)
+                commitInlineTextIfNeeded()
+                needsDisplay = true
+                return
+            }
+            return
+        }
+
+        window?.makeFirstResponder(self)
+        pendingTextClickIndex = nil
+        pendingPinClickIndex = nil
+        pendingClickDownViewPoint = nil
+        didExceedDragThreshold = false
 
         if state.isSpacePanning {
             isPanningCanvas = true
             lastPanViewPoint = viewLoc
             NSCursor.closedHand.set()
+            return
+        }
+
+        // Universal Floating Drag Grip Handle works on ANY hovered/selected layer across ALL tools!
+        if let gripIdx = hitTestDragGrip(atViewPoint: viewLoc),
+           let rawPt = viewPointToImagePointUnclamped(viewLoc) {
+            state.selectedAnnotationIndex = gripIdx
+            hoveredAnnotationIndex = gripIdx
+            activeHandleMode = .moveBody
+            dragStartImagePoint = rawPt
+            hasPushedDragUndo = false
+            NSCursor.closedHand.set()
+            needsDisplay = true
             return
         }
 
@@ -1179,8 +1625,9 @@ public class ScreenshotEditorCanvasNSView: NSView, NSTextFieldDelegate {
             if let hitIdx = topAnnotationIndex(at: imgPt) {
                 state.selectedAnnotationIndex = hitIdx
                 activeHandleMode = .moveBody
-                dragStartImagePoint = imgPt
+                dragStartImagePoint = viewPointToImagePointUnclamped(viewLoc) ?? imgPt
                 hasPushedDragUndo = false
+                NSCursor.closedHand.set()
             } else {
                 state.selectedAnnotationIndex = nil
                 activeHandleMode = .none
@@ -1191,20 +1638,31 @@ public class ScreenshotEditorCanvasNSView: NSView, NSTextFieldDelegate {
             }
 
         case .numberedPin:
-            let pin = CanvasAnnotation(
-                tool: .numberedPin,
-                startPoint: imgPt,
-                endPoint: imgPt,
-                number: state.nextPinNumber,
-                color: state.pinColor
-            )
-            state.addAnnotation(pin)
+            if let hitIdx = topAnnotationIndex(at: imgPt), state.annotations[hitIdx].tool == .numberedPin {
+                state.selectedAnnotationIndex = hitIdx
+                pendingPinClickIndex = hitIdx
+                pendingClickDownViewPoint = viewLoc
+                dragStartImagePoint = viewPointToImagePointUnclamped(viewLoc) ?? imgPt
+                hasPushedDragUndo = false
+            } else {
+                let pin = CanvasAnnotation(
+                    tool: .numberedPin,
+                    startPoint: imgPt,
+                    endPoint: imgPt,
+                    number: state.nextPinNumber,
+                    color: state.pinColor
+                )
+                state.addAnnotation(pin)
+            }
 
         case .text:
-            // If clicking right onto an existing text callout, edit it directly!
+            // Click-to-edit OR drag-to-move existing text directly without switching to Pointer!
             if let hitIdx = topAnnotationIndex(at: imgPt), state.annotations[hitIdx].tool == .text {
                 state.selectedAnnotationIndex = hitIdx
-                beginEditingTextAnnotation(at: hitIdx)
+                pendingTextClickIndex = hitIdx
+                pendingClickDownViewPoint = viewLoc
+                dragStartImagePoint = viewPointToImagePointUnclamped(viewLoc) ?? imgPt
+                hasPushedDragUndo = false
             } else {
                 showInlineTextEditor(atViewPoint: viewLoc, imagePoint: imgPt, initialText: "")
             }
@@ -1280,7 +1738,22 @@ public class ScreenshotEditorCanvasNSView: NSView, NSTextFieldDelegate {
             return
         }
 
-        guard let currentImgPt = viewPointToClampedImagePoint(viewLoc) else { return }
+        // Convert pending text or pin body click into smooth moveBody drag once movement exceeds 3.5pt
+        if let downPt = pendingClickDownViewPoint,
+           let targetIdx = pendingTextClickIndex ?? pendingPinClickIndex,
+           targetIdx < state.annotations.count,
+           !didExceedDragThreshold {
+            if hypot(viewLoc.x - downPt.x, viewLoc.y - downPt.y) > 3.5 {
+                didExceedDragThreshold = true
+                activeHandleMode = .moveBody
+                NSCursor.closedHand.set()
+            } else {
+                return
+            }
+        }
+
+        guard let clampedImgPt = viewPointToClampedImagePoint(viewLoc) else { return }
+        let moveImgPt = viewPointToImagePointUnclamped(viewLoc) ?? clampedImgPt
 
         // Handle Manipulation of Selected Annotation
         if let idx = state.selectedAnnotationIndex, idx < state.annotations.count, activeHandleMode != .none, let start = dragStartImagePoint {
@@ -1288,11 +1761,14 @@ public class ScreenshotEditorCanvasNSView: NSView, NSTextFieldDelegate {
                 state.pushUndoSnapshot()
                 hasPushedDragUndo = true
             }
-            applyHandleDrag(mode: activeHandleMode, index: idx, from: start, to: currentImgPt, modifiers: event.modifierFlags)
-            dragStartImagePoint = currentImgPt
+            let targetPt = (activeHandleMode == .moveBody) ? moveImgPt : clampedImgPt
+            applyHandleDrag(mode: activeHandleMode, index: idx, from: start, to: targetPt, modifiers: event.modifierFlags)
+            dragStartImagePoint = targetPt
             needsDisplay = true
             return
         }
+
+        let currentImgPt = clampedImgPt
 
         // Drawing New Annotation Live Preview
         if var live = liveAnnotation, let start = dragStartImagePoint {
@@ -1347,6 +1823,23 @@ public class ScreenshotEditorCanvasNSView: NSView, NSTextFieldDelegate {
             window?.invalidateCursorRects(for: self)
             return
         }
+
+        if let tapTextIdx = pendingTextClickIndex, !didExceedDragThreshold, tapTextIdx < state.annotations.count {
+            pendingTextClickIndex = nil
+            pendingPinClickIndex = nil
+            pendingClickDownViewPoint = nil
+            didExceedDragThreshold = false
+            activeHandleMode = .none
+            hasPushedDragUndo = false
+            dragStartImagePoint = nil
+            beginEditingTextAnnotation(at: tapTextIdx)
+            return
+        }
+
+        pendingTextClickIndex = nil
+        pendingPinClickIndex = nil
+        pendingClickDownViewPoint = nil
+        didExceedDragThreshold = false
 
         activeSnapGuides = ([], [])
         hasPushedDragUndo = false
@@ -1479,7 +1972,7 @@ public class ScreenshotEditorCanvasNSView: NSView, NSTextFieldDelegate {
     }
 
     private func cancelActiveInteractions() {
-        if inlineTextField != nil {
+        if inlineTextContainer != nil {
             dismissInlineTextField()
         } else if liveAnnotation != nil {
             liveAnnotation = nil
@@ -1491,95 +1984,148 @@ public class ScreenshotEditorCanvasNSView: NSView, NSTextFieldDelegate {
         needsDisplay = true
     }
 
-    // MARK: - Inline Text Input (Click-to-Write + Shift-Return Newline)
+    // MARK: - Live WYSIWYG Inline Text Input (Multi-line + Real-Time Inspector Sync)
     private func beginEditingTextAnnotation(at index: Int) {
         guard index >= 0 && index < state.annotations.count else { return }
         let ann = state.annotations[index]
-        editingAnnotationIndex = index
-        let viewPt = imagePointToViewPoint(ann.startPoint)
-        showInlineTextEditor(atViewPoint: viewPt, imagePoint: ann.startPoint, initialText: ann.text, fontColor: ann.color, fontSize: ann.strokeWidth > 8 ? ann.strokeWidth : state.textSize)
+        state.selectedAnnotationIndex = index
+        showInlineTextEditor(
+            imagePoint: ann.startPoint,
+            initialText: ann.text,
+            fontColor: ann.color,
+            fontSize: ann.strokeWidth > 8 ? ann.strokeWidth : state.textSize,
+            textStyle: ann.textStyle,
+            editingIndex: index
+        )
+        needsDisplay = true
     }
 
-    private func showInlineTextEditor(atViewPoint viewPoint: NSPoint, imagePoint: CGPoint, initialText: String, fontColor: NSColor? = nil, fontSize: CGFloat? = nil) {
+    private func showInlineTextEditor(
+        atViewPoint viewPoint: NSPoint? = nil,
+        imagePoint: CGPoint,
+        initialText: String,
+        fontColor: NSColor? = nil,
+        fontSize: CGFloat? = nil,
+        textStyle: TextStyle? = nil,
+        editingIndex: Int? = nil
+    ) {
         dismissInlineTextField()
+        self.editingAnnotationIndex = editingIndex
         let activeColor = fontColor ?? state.textColor
         let activeSize = fontSize ?? state.textSize
-        let field = NSTextField(frame: NSRect(
-            x: max(12, min(viewPoint.x - 4, bounds.width - 250)),
-            y: max(12, min(viewPoint.y - 28, bounds.height - 60)),
-            width: 240,
-            height: max(30, activeSize + 14)
-        ))
-        field.focusRingType = .exterior
-        field.bezelStyle = .roundedBezel
-        field.backgroundColor = activeColor.relativeLuminance > 0.45
-            ? NSColor(red: 22/255, green: 22/255, blue: 26/255, alpha: 0.94)
-            : NSColor.white.withAlphaComponent(0.96)
-        field.textColor = activeColor
-        field.font = NSFont.systemFont(ofSize: min(24, max(12, activeSize)), weight: .medium)
-        field.stringValue = initialText
-        field.placeholderString = "Write text (Return to finish)"
-        field.delegate = self
-        field.target = self
-        field.action = #selector(textEntered(_:))
+        let activeStyle = textStyle ?? state.textStyle
 
-        addSubview(field)
-        window?.makeFirstResponder(field)
-        self.inlineTextField = field
-        self.dragStartImagePoint = imagePoint
-    }
-
-    public func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
-        if commandSelector == #selector(NSResponder.insertNewline(_:)) {
-            if NSApp.currentEvent?.modifierFlags.contains(.shift) == true {
-                textView.insertNewlineIgnoringFieldEditor(nil)
-                return true
+        let container = InlineTextCalloutContainer(
+            imageOrigin: imagePoint,
+            initialText: initialText,
+            scale: effectiveScale(),
+            style: activeStyle,
+            color: activeColor,
+            fontSize: activeSize,
+            parentBoundsProvider: { [unowned self] in self.bounds },
+            viewOriginProvider: { [unowned self] pt in self.imagePointToViewPoint(pt) }
+        )
+        container.onCommit = { [weak self] _ in
+            self?.commitInlineTextIfNeeded()
+            if let self {
+                self.window?.makeFirstResponder(self)
             }
-            commitInlineTextIfNeeded()
-            window?.makeFirstResponder(self)
-            return true
         }
-        return false
+        container.onCancel = { [weak self] in
+            self?.dismissInlineTextField()
+            if let self {
+                self.window?.makeFirstResponder(self)
+                self.needsDisplay = true
+            }
+        }
+
+        addSubview(container)
+        self.inlineTextContainer = container
+        self.dragStartImagePoint = imagePoint
+        state.isEditingInlineText = true
+
+        window?.makeFirstResponder(container.textView)
+        if !initialText.isEmpty {
+            container.textView.setSelectedRange(NSRange(location: initialText.count, length: 0))
+        }
     }
 
-    @objc private func textEntered(_ sender: NSTextField) {
-        commitInlineTextIfNeeded()
-        window?.makeFirstResponder(self)
+    private func syncInlineEditorScaleAndPosition() {
+        guard let container = inlineTextContainer else { return }
+        container.scale = effectiveScale()
+        container.relayout()
+        container.needsDisplay = true
+    }
+
+    private func syncInlineTextStyleFromState() {
+        guard let container = inlineTextContainer else { return }
+        let targetColor: NSColor
+        let targetSize: CGFloat
+        let targetStyle: TextStyle
+
+        if let editIdx = editingAnnotationIndex, editIdx < state.annotations.count {
+            targetColor = state.annotations[editIdx].color
+            targetSize = state.annotations[editIdx].strokeWidth
+            targetStyle = state.annotations[editIdx].textStyle
+        } else {
+            targetColor = state.textColor
+            targetSize = state.textSize
+            targetStyle = state.textStyle
+        }
+
+        container.updateStyle(style: targetStyle, color: targetColor, fontSize: targetSize, scale: effectiveScale())
+
+        if let win = self.window, win.isKeyWindow, !state.isColorPopoverOpen {
+            DispatchQueue.main.async { [weak self] in
+                guard let self, let tv = self.inlineTextContainer?.textView else { return }
+                if !self.state.isColorPopoverOpen && win.firstResponder !== tv {
+                    win.makeFirstResponder(tv)
+                }
+            }
+        }
     }
 
     private func commitInlineTextIfNeeded() {
-        guard let tf = inlineTextField else { return }
-        let text = tf.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let container = inlineTextContainer else { return }
+        let text = container.textView.string.trimmingCharacters(in: .whitespacesAndNewlines)
 
         if let editIdx = editingAnnotationIndex, editIdx < state.annotations.count {
-            if !text.isEmpty && text != state.annotations[editIdx].text {
+            let movedOrigin = container.imageOrigin != state.annotations[editIdx].startPoint
+            if text.isEmpty {
+                state.pushUndoSnapshot()
+                state.annotations.remove(at: editIdx)
+                state.selectedAnnotationIndex = nil
+            } else if text != state.annotations[editIdx].text || movedOrigin {
                 state.pushUndoSnapshot()
                 state.annotations[editIdx].text = text
+                state.annotations[editIdx].startPoint = container.imageOrigin
+                state.annotations[editIdx].endPoint = container.imageOrigin
+                state.selectedAnnotationIndex = editIdx
+            } else {
                 state.selectedAnnotationIndex = editIdx
             }
-        } else if !text.isEmpty, let imgPt = dragStartImagePoint {
+        } else if !text.isEmpty {
             var ann = CanvasAnnotation(
                 tool: .text,
-                startPoint: imgPt,
-                endPoint: imgPt,
-                color: state.textColor,
-                strokeWidth: state.textSize,
-                textStyle: state.textStyle
+                startPoint: container.imageOrigin,
+                endPoint: container.imageOrigin,
+                color: container.inkColor,
+                strokeWidth: container.fontSize,
+                textStyle: container.textStyle
             )
             ann.text = text
             state.addAnnotation(ann)
         }
 
-        editingAnnotationIndex = nil
-        tf.removeFromSuperview()
-        inlineTextField = nil
+        dismissInlineTextField()
         needsDisplay = true
     }
 
     private func dismissInlineTextField() {
         editingAnnotationIndex = nil
-        inlineTextField?.removeFromSuperview()
-        inlineTextField = nil
+        inlineTextContainer?.removeFromSuperview()
+        inlineTextContainer = nil
+        state.isEditingInlineText = false
     }
 
     // MARK: - Handle & Body Hit Testing
@@ -1684,19 +2230,30 @@ public class ScreenshotEditorCanvasNSView: NSView, NSTextFieldDelegate {
         super.draw(dirtyRect)
         guard let ctx = NSGraphicsContext.current?.cgContext else { return }
 
-        drawCheckerboard(in: bounds, ctx: ctx)
-
-        guard let img = state.image else { return }
+        guard let img = state.image else {
+            drawStudioStageBackdrop(in: bounds, imageRect: nil, hasEmbeddedShadow: false, ctx: ctx)
+            return
+        }
         let imgRect = imageDisplayRect()
         let effScale = effectiveScale()
 
+        drawStudioStageBackdrop(in: bounds, imageRect: imgRect, hasEmbeddedShadow: state.hasEmbeddedShadow, ctx: ctx)
+
         ctx.saveGState()
         if !state.hasEmbeddedShadow {
-            ctx.setShadow(offset: CGSize(width: 0, height: -6), blur: 14, color: NSColor.black.withAlphaComponent(0.22).cgColor)
+            ctx.setShadow(offset: CGSize(width: 0, height: -8), blur: 20, color: NSColor.black.withAlphaComponent(0.16).cgColor)
         }
         ctx.interpolationQuality = effScale >= 3.0 ? .none : .high
         img.draw(in: imgRect)
         ctx.restoreGState()
+
+        if !state.hasEmbeddedShadow {
+            ctx.saveGState()
+            ctx.setStrokeColor(NSColor.labelColor.withAlphaComponent(0.08).cgColor)
+            ctx.setLineWidth(0.75)
+            ctx.stroke(imgRect.insetBy(dx: 0.35, dy: 0.35))
+            ctx.restoreGState()
+        }
 
         if effScale >= 3.0 {
             drawPixelGrid(in: imgRect, scale: effScale, ctx: ctx)
@@ -1710,9 +2267,23 @@ public class ScreenshotEditorCanvasNSView: NSView, NSTextFieldDelegate {
         let auditUnit = SettingsManager.shared.gridAuditUnit
 
         for (index, ann) in state.annotations.enumerated() {
+            if index == editingAnnotationIndex && inlineTextContainer != nil {
+                continue
+            }
             AnnotationRenderer.draw(ann, mapper: mapper, blurredImage: cachedBlurredNSImage, auditUnit: auditUnit, in: ctx)
-            if index == state.selectedAnnotationIndex {
+
+            let isSelected = (index == state.selectedAnnotationIndex)
+            let isHovered = (index == hoveredAnnotationIndex)
+            if isSelected {
                 drawSelectionHandles(for: ann, mapper: mapper, in: ctx)
+            } else if isHovered {
+                drawHoverOutline(for: ann, mapper: mapper, in: ctx)
+            }
+            if isSelected || isHovered {
+                let gripPt = dragGripCenter(for: ann, mapper: mapper)
+                let highlight = (isHoveringDragGrip || activeHandleMode == .moveBody || didExceedDragThreshold) &&
+                    ((isHovered && isHoveringDragGrip) || (isSelected && (activeHandleMode == .moveBody || didExceedDragThreshold)))
+                AnnotationRenderer.drawDragGripPill(center: gripPt, isHighlighted: highlight, in: ctx)
             }
         }
 
@@ -1774,12 +2345,12 @@ public class ScreenshotEditorCanvasNSView: NSView, NSTextFieldDelegate {
             let imgBox = AnnotationRenderer.textImageBounds(for: ann)
             let tl = mapper.toCanvasPoint(imgBox.origin)
             let br = mapper.toCanvasPoint(CGPoint(x: imgBox.maxX, y: imgBox.maxY))
-            let selR = AnnotationRenderer.normalizedRect(from: tl, to: br).insetBy(dx: -5, dy: -5)
+            let selR = AnnotationRenderer.normalizedRect(from: tl, to: br).insetBy(dx: -4, dy: -4)
             ctx.saveGState()
-            ctx.setLineDash(phase: 0, lengths: [4, 4])
-            ctx.setStrokeColor(accent.cgColor)
-            ctx.setLineWidth(1.0)
-            ctx.stroke(selR)
+            let ring = NSBezierPath(roundedRect: selR, xRadius: 9, yRadius: 9)
+            accent.withAlphaComponent(0.75).setStroke()
+            ring.lineWidth = 1.0
+            ring.stroke()
             ctx.restoreGState()
 
         default:
@@ -1799,6 +2370,123 @@ public class ScreenshotEditorCanvasNSView: NSView, NSTextFieldDelegate {
             ctx.stroke(selR)
             ctx.restoreGState()
         }
+    }
+
+    // MARK: - Hover Outline & Universal Floating Drag Grip Placement
+    private func drawHoverOutline(for ann: CanvasAnnotation, mapper: AnnotationRenderer.Mapper, in ctx: CGContext) {
+        let hoverInk = NSColor(red: 10/255, green: 132/255, blue: 255/255, alpha: 0.48)
+        ctx.saveGState()
+        switch ann.tool {
+        case .text:
+            let imgBox = AnnotationRenderer.textImageBounds(for: ann)
+            let tl = mapper.toCanvasPoint(imgBox.origin)
+            let br = mapper.toCanvasPoint(CGPoint(x: imgBox.maxX, y: imgBox.maxY))
+            let hoverR = AnnotationRenderer.normalizedRect(from: tl, to: br).insetBy(dx: -3, dy: -3)
+            let path = NSBezierPath(roundedRect: hoverR, xRadius: 8, yRadius: 8)
+            hoverInk.setStroke()
+            path.lineWidth = 1.0
+            path.stroke()
+
+        case .rectangle, .blur:
+            let tl = mapper.toCanvasPoint(ann.startPoint)
+            let br = mapper.toCanvasPoint(ann.endPoint)
+            let hoverR = AnnotationRenderer.normalizedRect(from: tl, to: br).insetBy(dx: -3, dy: -3)
+            let path = NSBezierPath(roundedRect: hoverR, xRadius: max(3, ann.cornerRadius * mapper.scale), yRadius: max(3, ann.cornerRadius * mapper.scale))
+            hoverInk.setStroke()
+            path.lineWidth = 1.0
+            path.stroke()
+
+        case .numberedPin:
+            let c = mapper.toCanvasPoint(ann.startPoint)
+            let d = max(18, ann.strokeWidth * 4.5 * mapper.scale) + 6
+            let path = NSBezierPath(ovalIn: NSRect(x: c.x - d / 2, y: c.y - d / 2, width: d, height: d))
+            hoverInk.setStroke()
+            path.lineWidth = 1.2
+            path.stroke()
+
+        default:
+            break
+        }
+        ctx.restoreGState()
+    }
+
+    private func dragGripCenter(for ann: CanvasAnnotation, mapper: AnnotationRenderer.Mapper) -> NSPoint {
+        let s = mapper.scale
+        let rawPt: NSPoint
+        switch ann.tool {
+        case .text:
+            let imgBox = AnnotationRenderer.textImageBounds(for: ann)
+            let tl = mapper.toCanvasPoint(imgBox.origin)
+            let br = mapper.toCanvasPoint(CGPoint(x: imgBox.maxX, y: imgBox.maxY))
+            let r = AnnotationRenderer.normalizedRect(from: tl, to: br)
+            rawPt = NSPoint(x: r.midX, y: r.maxY + 13)
+
+        case .rectangle, .blur:
+            let tl = mapper.toCanvasPoint(ann.startPoint)
+            let br = mapper.toCanvasPoint(ann.endPoint)
+            let r = AnnotationRenderer.normalizedRect(from: tl, to: br)
+            if ann.showSizeTag && r.width < 185 {
+                rawPt = NSPoint(x: r.midX, y: r.minY - 13)
+            } else {
+                rawPt = NSPoint(x: r.midX, y: r.maxY + 13)
+            }
+
+        case .arrow:
+            let vS = mapper.toCanvasPoint(ann.startPoint)
+            let vE = mapper.toCanvasPoint(ann.endPoint)
+            rawPt = NSPoint(x: (vS.x + vE.x) * 0.5, y: max(vS.y, vE.y) + 15)
+
+        case .distance:
+            let vS = mapper.toCanvasPoint(ann.startPoint)
+            let vE = mapper.toCanvasPoint(ann.endPoint)
+            let isHoriz = abs(ann.endPoint.x - ann.startPoint.x) >= abs(ann.endPoint.y - ann.startPoint.y)
+            let mid = NSPoint(x: (vS.x + vE.x) * 0.5, y: (vS.y + vE.y) * 0.5)
+            rawPt = isHoriz ? NSPoint(x: mid.x, y: mid.y + 20) : NSPoint(x: mid.x + 42, y: mid.y)
+
+        case .numberedPin:
+            let c = mapper.toCanvasPoint(ann.startPoint)
+            let d = max(18, ann.strokeWidth * 4.5 * s)
+            rawPt = NSPoint(x: c.x, y: c.y + d * 0.5 + 13)
+
+        case .pencil:
+            let pts = ann.pathPoints.map { mapper.toCanvasPoint($0) }
+            let minX = pts.map(\.x).min() ?? 0
+            let maxX = pts.map(\.x).max() ?? 0
+            let maxY = pts.map(\.y).max() ?? 0
+            rawPt = NSPoint(x: (minX + maxX) * 0.5, y: maxY + 13)
+
+        case .pointer:
+            rawPt = .zero
+        }
+
+        guard bounds.width > 40 && bounds.height > 40 else { return rawPt }
+        return NSPoint(
+            x: max(18, min(bounds.width - 18, rawPt.x)),
+            y: max(14, min(bounds.height - 16, rawPt.y))
+        )
+    }
+
+    private func hitTestDragGrip(atViewPoint viewPt: NSPoint) -> Int? {
+        guard let img = state.image else { return nil }
+        let mapper = AnnotationRenderer.Mapper(
+            toCanvasPoint: { [unowned self] in self.imagePointToViewPoint($0) },
+            scale: effectiveScale(),
+            imageCanvasRect: imageDisplayRect()
+        )
+        _ = img
+
+        var candidates: [Int] = []
+        if let h = hoveredAnnotationIndex, h >= 0 && h < state.annotations.count { candidates.append(h) }
+        if let s = state.selectedAnnotationIndex, s >= 0 && s < state.annotations.count, s != hoveredAnnotationIndex { candidates.append(s) }
+
+        for idx in candidates {
+            if idx == editingAnnotationIndex && inlineTextContainer != nil { continue }
+            let g = dragGripCenter(for: state.annotations[idx], mapper: mapper)
+            if abs(viewPt.x - g.x) <= 16 && abs(viewPt.y - g.y) <= 12 {
+                return idx
+            }
+        }
+        return nil
     }
 
     private func drawPixelGrid(in imgRect: NSRect, scale: CGFloat, ctx: CGContext) {
@@ -1888,22 +2576,34 @@ public class ScreenshotEditorCanvasNSView: NSView, NSTextFieldDelegate {
         ctx.restoreGState()
     }
 
-    private func drawCheckerboard(in rect: NSRect, ctx: CGContext) {
-        ctx.setFillColor(NSColor.underPageBackgroundColor.cgColor)
+    private func drawStudioStageBackdrop(in rect: NSRect, imageRect: NSRect?, hasEmbeddedShadow: Bool, ctx: CGContext) {
+        let isDark = effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        let stageBG = isDark
+            ? NSColor(red: 24/255, green: 24/255, blue: 27/255, alpha: 1.0)
+            : NSColor(red: 238/255, green: 239/255, blue: 243/255, alpha: 1.0)
+        ctx.setFillColor(stageBG.cgColor)
         ctx.fill(rect)
 
-        let tileSize: CGFloat = 8
-        let cols = Int(ceil(rect.width / tileSize))
-        let rows = Int(ceil(rect.height / tileSize))
+        // Show subtle transparency checker grid strictly inside translucent screenshot area (never across chrome)
+        guard let imgR = imageRect else { return }
+        ctx.saveGState()
+        ctx.clip(to: imgR)
 
-        ctx.setFillColor(NSColor.labelColor.withAlphaComponent(0.04).cgColor)
-        for row in 0..<rows {
-            for col in 0..<cols {
+        let tileSize: CGFloat = 10
+        let startCol = max(0, Int(floor((imgR.minX) / tileSize)))
+        let endCol = Int(ceil(imgR.maxX / tileSize))
+        let startRow = max(0, Int(floor((imgR.minY) / tileSize)))
+        let endRow = Int(ceil(imgR.maxY / tileSize))
+
+        ctx.setFillColor((isDark ? NSColor.white : NSColor.black).withAlphaComponent(0.03).cgColor)
+        for row in startRow...endRow {
+            for col in startCol...endCol {
                 if (row + col) % 2 == 0 {
                     ctx.fill(CGRect(x: CGFloat(col) * tileSize, y: CGFloat(row) * tileSize, width: tileSize, height: tileSize))
                 }
             }
         }
+        ctx.restoreGState()
     }
 
     private static func buildPixellatedImage(from image: NSImage) -> NSImage? {
