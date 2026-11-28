@@ -429,6 +429,7 @@ public struct DesignerColorSwatchButton: View {
 
 public struct BackdropStudioPopover: View {
     @ObservedObject var state: ScreenshotEditorState
+    @ObservedObject private var wallpaperStore = MacWallpaperStore.shared
     @Environment(\.colorScheme) private var colorScheme
 
     public var body: some View {
@@ -535,7 +536,12 @@ public struct BackdropStudioPopover: View {
                         let active = state.backdropConfig.backdropType == mode
                         Button(action: {
                             state.backdropConfig.backdropType = mode
-                            if mode == .gif && state.gifFrames.isEmpty {
+                            if mode == .photo && state.backdropConfig.customPhoto == nil {
+                                if let def = wallpaperStore.defaultWallpaperImageAndId() {
+                                    state.backdropConfig.wallpaperId = def.id
+                                    state.backdropConfig.customPhoto = def.image
+                                }
+                            } else if mode == .gif && state.gifFrames.isEmpty {
                                 state.gifFrames = ImageBackdropCompositor.generateBuiltInGIFFrames(presetId: state.backdropConfig.gifPresetId)
                             }
                             state.onBackdropChanged?()
@@ -631,32 +637,73 @@ public struct BackdropStudioPopover: View {
                     }
 
                 case .photo:
-                    HStack(spacing: 10) {
-                        Button(action: { state.onRequestChooseBackdropPhoto?() }) {
-                            HStack(spacing: 5) {
-                                Image(systemName: "photo")
-                                    .font(.system(size: 11))
-                                Text(state.backdropConfig.customPhoto == nil ? "Choose Image…" : "Change Image…")
-                                    .font(.system(size: 11.5, weight: .medium))
+                    VStack(alignment: .leading, spacing: 9) {
+                        let galleryPresets = Array(wallpaperStore.presets.prefix(12))
+                        if !galleryPresets.isEmpty {
+                            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 6), spacing: 6) {
+                                ForEach(galleryPresets) { preset in
+                                    let isSelected = state.backdropConfig.wallpaperId == preset.id
+                                    Button(action: {
+                                        if let img = wallpaperStore.loadFullImage(for: preset) {
+                                            state.backdropConfig.wallpaperId = preset.id
+                                            state.backdropConfig.customPhoto = img
+                                            state.backdropConfig.backdropType = .photo
+                                            state.onBackdropChanged?()
+                                        }
+                                    }) {
+                                    Color.primary.opacity(0.07)
+                                        .frame(height: 30)
+                                        .overlay {
+                                            if let thumb = wallpaperStore.thumbnails[preset.id] {
+                                                Image(nsImage: thumb)
+                                                    .resizable()
+                                                    .scaledToFill()
+                                            }
+                                        }
+                                        .clipShape(RoundedRectangle(cornerRadius: 6.5, style: .continuous))
+                                        .overlay(
+                                            RoundedRectangle(cornerRadius: 6.5, style: .continuous)
+                                                .strokeBorder(
+                                                    isSelected
+                                                        ? Color(red: 10/255, green: 132/255, blue: 255/255)
+                                                        : Color.primary.opacity(0.14),
+                                                    lineWidth: isSelected ? 2.0 : 0.6
+                                                )
+                                        )
+                                    }
+                                    .buttonStyle(.plain)
+                                    .help(preset.name)
+                                }
                             }
-                            .foregroundColor(.primary)
-                            .padding(.horizontal, 10)
-                            .frame(height: 26)
-                            .background(RoundedRectangle(cornerRadius: 6.5, style: .continuous).fill(Color.primary.opacity(0.07)))
                         }
-                        .buttonStyle(.plain)
 
-                        Spacer()
-
-                        Toggle("Blur", isOn: Binding(
-                            get: { state.backdropConfig.blurPhotoBackdrop },
-                            set: {
-                                state.backdropConfig.blurPhotoBackdrop = $0
-                                state.onBackdropChanged?()
+                        HStack(spacing: 10) {
+                            Button(action: { state.onRequestChooseBackdropPhoto?() }) {
+                                HStack(spacing: 5) {
+                                    Image(systemName: "photo.badge.plus")
+                                        .font(.system(size: 11))
+                                    Text(state.backdropConfig.wallpaperId == nil && state.backdropConfig.customPhoto != nil ? "Replace Photo…" : "Custom Image…")
+                                        .font(.system(size: 11.5, weight: .medium))
+                                }
+                                .foregroundColor(.primary)
+                                .padding(.horizontal, 10)
+                                .frame(height: 25)
+                                .background(RoundedRectangle(cornerRadius: 6.5, style: .continuous).fill(Color.primary.opacity(0.07)))
                             }
-                        ))
-                        .toggleStyle(.switch)
-                        .controlSize(.mini)
+                            .buttonStyle(.plain)
+
+                            Spacer()
+
+                            Toggle("Blur", isOn: Binding(
+                                get: { state.backdropConfig.blurPhotoBackdrop },
+                                set: {
+                                    state.backdropConfig.blurPhotoBackdrop = $0
+                                    state.onBackdropChanged?()
+                                }
+                            ))
+                            .toggleStyle(.switch)
+                            .controlSize(.mini)
+                        }
                     }
 
                 case .gif:
@@ -745,22 +792,24 @@ public struct BackdropStudioPopover: View {
                         }
                     }
 
-                    HStack {
-                        Text("Corners")
-                            .font(.system(size: 11.5, weight: .medium))
-                            .foregroundColor(.secondary)
-                            .frame(width: 58, alignment: .leading)
-                        Slider(value: Binding(
-                            get: { state.backdropConfig.cornerRadius },
-                            set: {
-                                state.backdropConfig.cornerRadius = $0
-                                state.onBackdropChanged?()
-                            }
-                        ), in: 0...28, step: 2)
-                        Text(verbatim: "\(Int(state.backdropConfig.cornerRadius))")
-                            .font(.system(size: 11, design: .monospaced))
-                            .foregroundColor(.secondary)
-                            .frame(width: 26, alignment: .trailing)
+                    if !state.hasEmbeddedShadow || state.backdropConfig.frameStyle != .none {
+                        HStack {
+                            Text("Corners")
+                                .font(.system(size: 11.5, weight: .medium))
+                                .foregroundColor(.secondary)
+                                .frame(width: 58, alignment: .leading)
+                            Slider(value: Binding(
+                                get: { state.backdropConfig.cornerRadius },
+                                set: {
+                                    state.backdropConfig.cornerRadius = $0
+                                    state.onBackdropChanged?()
+                                }
+                            ), in: 0...28, step: 2)
+                            Text(verbatim: "\(Int(state.backdropConfig.cornerRadius))")
+                                .font(.system(size: 11, design: .monospaced))
+                                .foregroundColor(.secondary)
+                                .frame(width: 26, alignment: .trailing)
+                        }
                     }
 
                     if state.backdropConfig.backdropType != .none {
@@ -795,8 +844,11 @@ public struct BackdropStudioPopover: View {
             }
         }
         .padding(14)
-        .frame(width: 304)
+        .frame(width: 326)
         .background(Color(nsColor: .windowBackgroundColor).opacity(0.78))
+        .onAppear {
+            wallpaperStore.preloadThumbnailsIfNeeded()
+        }
     }
 }
 

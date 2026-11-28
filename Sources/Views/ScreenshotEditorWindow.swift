@@ -555,7 +555,13 @@ public class ScreenshotEditorWindowController: NSObject, NSWindowDelegate {
                     self.state.cutoutImage = cut
                     self.state.backdropConfig.removeSubjectBackground = true
                     if self.state.backdropConfig.backdropType == .none {
-                        self.state.backdropConfig.backdropType = .gradient
+                        if let def = MacWallpaperStore.shared.defaultWallpaperImageAndId() {
+                            self.state.backdropConfig.wallpaperId = def.id
+                            self.state.backdropConfig.customPhoto = def.image
+                            self.state.backdropConfig.backdropType = .photo
+                        } else {
+                            self.state.backdropConfig.backdropType = .gradient
+                        }
                     }
                     self.state.onBackdropChanged?()
                     self.state.onCanvasMutated?()
@@ -572,6 +578,7 @@ public class ScreenshotEditorWindowController: NSObject, NSWindowDelegate {
             panel.allowsMultipleSelection = false
             panel.prompt = "Use Background"
             if panel.runModal() == .OK, let url = panel.url, let loaded = NSImage(contentsOf: url) {
+                self.state.backdropConfig.wallpaperId = nil
                 self.state.backdropConfig.customPhoto = loaded
                 self.state.backdropConfig.backdropType = .photo
                 self.state.onBackdropChanged?()
@@ -754,10 +761,17 @@ public class ScreenshotEditorWindowController: NSObject, NSWindowDelegate {
         state.backdropConfig.gradientId = gradientId
         state.backdropConfig.windowTitle = windowTitle
         state.annotationColorPickerState.showCustomSpectrum = expandCustomColor
+        if backdropType == .photo && state.backdropConfig.customPhoto == nil {
+            if let def = MacWallpaperStore.shared.defaultWallpaperImageAndId() {
+                state.backdropConfig.wallpaperId = def.id
+                state.backdropConfig.customPhoto = def.image
+            }
+        }
         if backdropType == .gif {
             state.gifFrames = ImageBackdropCompositor.generateBuiltInGIFFrames(presetId: state.backdropConfig.gifPresetId)
             state.currentGifFrameIndex = 0
         }
+        MacWallpaperStore.shared.preloadThumbnailsIfNeeded()
         if selectSpotlight {
             let spot = CanvasAnnotation(
                 tool: .spotlight,
@@ -773,6 +787,7 @@ public class ScreenshotEditorWindowController: NSObject, NSWindowDelegate {
         }
         state.onBackdropChanged?()
         state.onCanvasMutated?()
+        state.onRequestZoomFit?()
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
             self?.state.isBackdropPopoverOpen = openBackdropPopover
             self?.state.isColorPopoverOpen = openColorPopover
@@ -971,6 +986,7 @@ public struct ScreenshotEditorRootView: View {
             ZStack(alignment: .bottom) {
                 ScreenshotEditorCanvasRepresentable(state: state)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .clipped()
 
                 // Contextual Floating Inspector Capsule along bottom edge
                 DesignerInspectorBar(state: state)
@@ -1646,6 +1662,7 @@ public class ScreenshotEditorCanvasNSView: NSView {
         self.state = state
         super.init(frame: .zero)
         self.wantsLayer = true
+        self.clipsToBounds = true
         updateCaches()
         wireStateCallbacks()
     }
@@ -1756,7 +1773,7 @@ public class ScreenshotEditorCanvasNSView: NSView {
     // MARK: - Coordinate Mapping & Zoom Math (Aware of Frame, Cutout & Backdrop Padding)
     private func compositeLayout() -> ImageBackdropCompositor.CompositeLayout {
         let subSize = state.activeSubjectImage?.size ?? state.imageSize
-        return ImageBackdropCompositor.layout(forSubjectSize: subSize, config: state.backdropConfig)
+        return ImageBackdropCompositor.layout(forSubjectSize: subSize, config: state.backdropConfig, hasEmbeddedShadow: state.hasEmbeddedShadow)
     }
 
     private func baseFitScale() -> CGFloat {
@@ -2683,6 +2700,9 @@ public class ScreenshotEditorCanvasNSView: NSView {
     override public func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
         guard let ctx = NSGraphicsContext.current?.cgContext else { return }
+        ctx.saveGState()
+        ctx.clip(to: bounds)
+        defer { ctx.restoreGState() }
 
         guard let img = state.activeSubjectImage ?? state.image else {
             drawStudioStageBackdrop(in: bounds, imageRect: nil, hasEmbeddedShadow: false, ctx: ctx)
@@ -2697,7 +2717,7 @@ public class ScreenshotEditorCanvasNSView: NSView {
 
         drawStudioStageBackdrop(
             in: bounds,
-            imageRect: (state.backdropConfig.backdropType == .none && state.backdropConfig.frameStyle == .none) ? imgRect : nil,
+            imageRect: (state.backdropConfig.backdropType == .none && state.backdropConfig.frameStyle == .none && !state.hasEmbeddedShadow) ? imgRect : nil,
             hasEmbeddedShadow: state.hasEmbeddedShadow,
             ctx: ctx
         )
@@ -2731,6 +2751,7 @@ public class ScreenshotEditorCanvasNSView: NSView {
             blurredSubjectImage: cachedBlurredNSImage,
             gifFrameImage: gifFrameCG,
             auditUnit: auditUnit,
+            hasEmbeddedShadow: state.hasEmbeddedShadow,
             scaleToView: effScale,
             canvasOriginInView: canvasRect.origin,
             in: ctx
@@ -3176,7 +3197,8 @@ public class ScreenshotEditorCanvasNSView: NSView {
             annotations: state.annotations,
             blurredSubjectImage: mosaicImage,
             gifFrameImage: gifFrame,
-            auditUnit: SettingsManager.shared.gridAuditUnit
+            auditUnit: SettingsManager.shared.gridAuditUnit,
+            hasEmbeddedShadow: state.hasEmbeddedShadow
         )
     }
 
@@ -3191,6 +3213,7 @@ public class ScreenshotEditorCanvasNSView: NSView {
             blurredSubjectImage: mosaicImage,
             frames: state.gifFrames,
             auditUnit: SettingsManager.shared.gridAuditUnit,
+            hasEmbeddedShadow: state.hasEmbeddedShadow,
             to: url
         )
     }

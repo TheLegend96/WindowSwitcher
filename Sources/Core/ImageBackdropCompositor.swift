@@ -4,6 +4,139 @@ import ImageIO
 import UniformTypeIdentifiers
 import Vision
 
+// MARK: - Native macOS Desktop Wallpaper Discovery & Caching
+
+@MainActor
+public final class MacWallpaperStore: ObservableObject {
+    public static let shared = MacWallpaperStore()
+
+    @Published public private(set) var presets: [MacWallpaperPreset] = []
+    @Published public private(set) var thumbnails: [String: NSImage] = [:]
+
+    private let renderImageCache = NSCache<NSString, NSImage>()
+    private var hasStartedPreload = false
+
+    private init() {
+        renderImageCache.countLimit = 12
+        loadCatalog()
+    }
+
+    private func loadCatalog() {
+        var discovered: [MacWallpaperPreset] = []
+        var seenPaths: Set<String> = []
+
+        if let activeURL = NSScreen.main.flatMap({ NSWorkspace.shared.desktopImageURL(for: $0) }),
+           FileManager.default.isReadableFile(atPath: activeURL.path),
+           ["heic", "jpg", "jpeg", "png", "tiff"].contains(activeURL.pathExtension.lowercased()) {
+            let resolved = activeURL.resolvingSymlinksInPath()
+            seenPaths.insert(resolved.path)
+            discovered.append(MacWallpaperPreset(id: "current_desktop", name: "Current Desktop", fileURL: activeURL))
+        }
+
+        let priorityNames: [(filename: String, label: String)] = [
+            ("Sonoma.heic", "Sonoma"),
+            ("Radial Sky Blue.heic", "Radial Sky"),
+            ("Mac Blue.heic", "Mac Blue"),
+            ("Mac Purple.heic", "Mac Purple"),
+            ("Mac Pink.heic", "Mac Pink"),
+            ("Mac Yellow.heic", "Mac Yellow"),
+            ("iMac Blue.heic", "iMac Blue"),
+            ("iMac Green.heic", "iMac Green"),
+            ("iMac Orange.heic", "iMac Orange"),
+            ("iMac Purple.heic", "iMac Purple"),
+            ("iMac Pink.heic", "iMac Pink"),
+            ("iMac Silver.heic", "iMac Silver"),
+            ("iMac Yellow.heic", "iMac Yellow")
+        ]
+
+        let sysDir = URL(fileURLWithPath: "/System/Library/Desktop Pictures")
+        for item in priorityNames {
+            let url = sysDir.appendingPathComponent(item.filename)
+            let resolved = url.resolvingSymlinksInPath().path
+            guard !seenPaths.contains(resolved),
+                  FileManager.default.isReadableFile(atPath: url.path) else { continue }
+            seenPaths.insert(resolved)
+            let id = "sys_" + item.filename.replacingOccurrences(of: ".heic", with: "").lowercased().replacingOccurrences(of: " ", with: "_")
+            discovered.append(MacWallpaperPreset(id: id, name: item.label, fileURL: url))
+        }
+
+        // Also include any additional full-resolution wallpapers present in /System/Library/Desktop Pictures or /Library/Desktop Pictures
+        for dir in [sysDir, URL(fileURLWithPath: "/Library/Desktop Pictures")] {
+            let entries = (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? []
+            for url in entries.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) {
+                let ext = url.pathExtension.lowercased()
+                guard ["heic", "jpg", "jpeg", "png"].contains(ext) else { continue }
+                let resolved = url.resolvingSymlinksInPath().path
+                guard !seenPaths.contains(resolved),
+                      FileManager.default.isReadableFile(atPath: url.path) else { continue }
+                seenPaths.insert(resolved)
+                let label = url.deletingPathExtension().lastPathComponent
+                let id = "sys_" + label.lowercased().replacingOccurrences(of: " ", with: "_")
+                discovered.append(MacWallpaperPreset(id: id, name: label, fileURL: url))
+            }
+        }
+
+        self.presets = discovered
+    }
+
+    public func preloadThumbnailsIfNeeded() {
+        guard !hasStartedPreload, !presets.isEmpty else { return }
+        hasStartedPreload = true
+        let items = presets
+        Task.detached(priority: .userInitiated) {
+            for preset in items {
+                guard let thumb = Self.decodeDownsampledImage(url: preset.fileURL, maxPixelSize: 160, preferEmbedded: true) else {
+                    continue
+                }
+                await MainActor.run {
+                    MacWallpaperStore.shared.thumbnails[preset.id] = thumb
+                }
+            }
+        }
+    }
+
+    public func loadFullImage(for preset: MacWallpaperPreset) -> NSImage? {
+        let key = preset.fileURL.path as NSString
+        if let cached = renderImageCache.object(forKey: key) {
+            return cached
+        }
+        guard let decoded = Self.decodeDownsampledImage(url: preset.fileURL, maxPixelSize: 2560, preferEmbedded: false)
+                ?? NSImage(contentsOf: preset.fileURL) else {
+            return nil
+        }
+        renderImageCache.setObject(decoded, forKey: key)
+        return decoded
+    }
+
+    public func defaultWallpaperImageAndId() -> (id: String, image: NSImage)? {
+        // Prefer Sonoma as crisp iconic default, else Current Desktop or first preset
+        let preferred = presets.first(where: { $0.id == "sys_sonoma" }) ?? presets.first
+        guard let preset = preferred, let img = loadFullImage(for: preset) else { return nil }
+        return (preset.id, img)
+    }
+
+    private nonisolated static func decodeDownsampledImage(url: URL, maxPixelSize: Int, preferEmbedded: Bool) -> NSImage? {
+        guard let src = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
+        if preferEmbedded {
+            let fastOpts: [CFString: Any] = [
+                kCGImageSourceCreateThumbnailFromImageIfAbsent: true,
+                kCGImageSourceThumbnailMaxPixelSize: maxPixelSize,
+                kCGImageSourceCreateThumbnailWithTransform: true
+            ]
+            if let cg = CGImageSourceCreateThumbnailAtIndex(src, 0, fastOpts as CFDictionary) {
+                return NSImage(cgImage: cg, size: NSSize(width: cg.width, height: cg.height))
+            }
+        }
+        let fullOpts: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceThumbnailMaxPixelSize: maxPixelSize,
+            kCGImageSourceCreateThumbnailWithTransform: true
+        ]
+        guard let cg = CGImageSourceCreateThumbnailAtIndex(src, 0, fullOpts as CFDictionary) else { return nil }
+        return NSImage(cgImage: cg, size: NSSize(width: cg.width, height: cg.height))
+    }
+}
+
 // MARK: - Background, Cutout, Window Framing & GIF Engine
 
 public final class ImageBackdropCompositor {
@@ -163,13 +296,32 @@ public final class ImageBackdropCompositor {
         public let subjectRect: CGRect       // Exact rect where base/cutout screenshot + annotations sit
     }
 
-    public static func layout(forSubjectSize subjectSize: CGSize, config: BackdropConfig) -> CompositeLayout {
+    public static func hasTransparentPerimeter(_ image: NSImage) -> Bool {
+        guard let cg = image.cgImage(forProposedRect: nil, context: nil, hints: nil),
+              cg.width >= 12, cg.height >= 12 else {
+            return false
+        }
+        let rep = NSBitmapImageRep(cgImage: cg)
+        let w = rep.pixelsWide
+        let h = rep.pixelsHigh
+        let pts = [(2, 2), (w - 3, 2), (2, h - 3), (w - 3, h - 3)]
+        for (px, py) in pts {
+            if let c = rep.colorAt(x: px, y: py), c.alphaComponent > 0.05 {
+                return false
+            }
+        }
+        return true
+    }
+
+    public static func layout(forSubjectSize subjectSize: CGSize, config: BackdropConfig, hasEmbeddedShadow: Bool = false) -> CompositeLayout {
         let safeW = max(1, subjectSize.width)
         let safeH = max(1, subjectSize.height)
 
         let hasFrame = config.frameStyle != .none
         let hasBackdrop = config.backdropType != .none || config.aspectRatio != .auto
-        let pad: CGFloat = hasBackdrop ? config.padding : (hasFrame ? 16 : 0)
+        // Captured macOS windows already carry ~50pt transparent shadow padding on each edge; avoid doubling it in Raw mode
+        let embeddedComp: CGFloat = (hasEmbeddedShadow && !hasFrame && config.backdropType != .none) ? 36 : 0
+        let pad: CGFloat = hasBackdrop ? max(0, config.padding - embeddedComp) : (hasFrame ? 16 : 0)
         let titleH: CGFloat = (config.frameStyle == .macOSWindow) ? 30 : 0
 
         let cardW = safeW
@@ -211,6 +363,7 @@ public final class ImageBackdropCompositor {
         blurredSubjectImage: NSImage?,
         gifFrameImage: CGImage?,
         auditUnit: Int,
+        hasEmbeddedShadow: Bool = false,
         scaleToView: CGFloat = 1.0,
         canvasOriginInView: CGPoint = .zero,
         in ctx: CGContext
@@ -280,13 +433,13 @@ public final class ImageBackdropCompositor {
         ctx.restoreGState()
 
         // B. Window / Card Drop Shadow + Surface
-        let effectiveRadius: CGFloat = (config.frameStyle == .none && config.backdropType == .none)
-            ? 0
-            : config.cornerRadius * scaleToView
+        let isFloatingSubject = hasEmbeddedShadow || config.removeSubjectBackground || (config.backdropType != .none && hasTransparentPerimeter(subjectImage))
+        let needsSyntheticCardDecor = (config.frameStyle != .none) || (config.backdropType != .none && !isFloatingSubject)
 
-        let shouldCastShadow = config.shadowIntensity > 0.02 && (config.frameStyle != .none || config.backdropType != .none)
+        let effectiveRadius: CGFloat = needsSyntheticCardDecor ? (config.cornerRadius * scaleToView) : 0
+        let shouldCastCardShadow = needsSyntheticCardDecor && config.shadowIntensity > 0.02
 
-        if shouldCastShadow {
+        if shouldCastCardShadow {
             ctx.saveGState()
             let blurR = (14 + 26 * config.shadowIntensity) * scaleToView
             let yOff = -(6 + 10 * config.shadowIntensity) * scaleToView
@@ -306,7 +459,7 @@ public final class ImageBackdropCompositor {
         if effectiveRadius > 0 {
             let clipPath = NSBezierPath(roundedRect: cardRect, xRadius: effectiveRadius, yRadius: effectiveRadius)
             clipPath.addClip()
-        } else {
+        } else if needsSyntheticCardDecor {
             ctx.clip(to: cardRect)
         }
 
@@ -356,12 +509,23 @@ public final class ImageBackdropCompositor {
             }
         }
 
+        // For raw isolated cutouts without pre-baked window shadow, cast true silhouette shadow directly from alpha channel
+        if config.frameStyle == .none && config.removeSubjectBackground && !hasEmbeddedShadow && config.backdropType != .none && config.shadowIntensity > 0.02 {
+            let blurR = (12 + 22 * config.shadowIntensity) * scaleToView
+            let yOff = -(5 + 9 * config.shadowIntensity) * scaleToView
+            ctx.setShadow(
+                offset: CGSize(width: 0, height: yOff),
+                blur: blurR,
+                color: NSColor.black.withAlphaComponent(0.18 + 0.22 * config.shadowIntensity).cgColor
+            )
+        }
+
         ctx.interpolationQuality = scaleToView >= 3.0 ? .none : .high
         subjectImage.draw(in: subjectViewRect)
         ctx.restoreGState()
 
-        // Crisp hairline rim around framed window/card
-        if config.frameStyle != .none || config.backdropType != .none {
+        // Crisp hairline rim ONLY around synthetic Card/Window frames or rectangular Area captures — NEVER around Window screenshots or Cutouts
+        if needsSyntheticCardDecor {
             ctx.saveGState()
             let strokePath = NSBezierPath(roundedRect: cardRect.insetBy(dx: 0.4, dy: 0.4), xRadius: effectiveRadius, yRadius: effectiveRadius)
             let rim = config.useDarkWindowChrome
@@ -404,9 +568,10 @@ public final class ImageBackdropCompositor {
         annotations: [CanvasAnnotation],
         blurredSubjectImage: NSImage?,
         gifFrameImage: CGImage?,
-        auditUnit: Int
+        auditUnit: Int,
+        hasEmbeddedShadow: Bool = false
     ) -> NSImage {
-        let layout = Self.layout(forSubjectSize: subjectImage.size, config: config)
+        let layout = Self.layout(forSubjectSize: subjectImage.size, config: config, hasEmbeddedShadow: hasEmbeddedShadow)
         let ratio = subjectImage.size.width > 0 ? (pixelSize.width / subjectImage.size.width) : 2.0
         let exportScale = max(1.0, min(2.5, ratio))
 
@@ -436,6 +601,7 @@ public final class ImageBackdropCompositor {
             blurredSubjectImage: blurredSubjectImage,
             gifFrameImage: gifFrameImage,
             auditUnit: auditUnit,
+            hasEmbeddedShadow: hasEmbeddedShadow,
             scaleToView: exportScale,
             canvasOriginInView: .zero,
             in: ctx
@@ -454,10 +620,11 @@ public final class ImageBackdropCompositor {
         blurredSubjectImage: NSImage?,
         frames: [AnimatedGIFFrame],
         auditUnit: Int,
+        hasEmbeddedShadow: Bool = false,
         to url: URL
     ) -> Bool {
         guard !frames.isEmpty else { return false }
-        let layout = Self.layout(forSubjectSize: subjectImage.size, config: config)
+        let layout = Self.layout(forSubjectSize: subjectImage.size, config: config, hasEmbeddedShadow: hasEmbeddedShadow)
 
         // Cap GIF frame resolution cleanly (~1080px max edge) so GIF exports stay fast and crisp
         let maxDim = max(layout.canvasSize.width, layout.canvasSize.height)
@@ -503,6 +670,7 @@ public final class ImageBackdropCompositor {
                 blurredSubjectImage: blurredSubjectImage,
                 gifFrameImage: frame.cgImage,
                 auditUnit: auditUnit,
+                hasEmbeddedShadow: hasEmbeddedShadow,
                 scaleToView: scale,
                 canvasOriginInView: .zero,
                 in: ctx

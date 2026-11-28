@@ -83,16 +83,39 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
             let openColor = (notif.userInfo?["openColor"] as? String) == "true"
             let expandCustomColor = (notif.userInfo?["expandCustomColor"] as? String) == "true"
             let addSpotlight = (notif.userInfo?["spotlight"] as? String) == "true"
+            let isWindowShot = (notif.userInfo?["windowShot"] as? String) == "true"
 
             Task { @MainActor in
                 // Generate a sample preview image
-                let size = NSSize(width: 800, height: 500)
-                let image = NSImage(size: size, flipped: false) { rect in
+                let baseSize = NSSize(width: 800, height: 500)
+                let baseImg = NSImage(size: baseSize, flipped: false) { rect in
+                    let clipPath = NSBezierPath(roundedRect: rect, xRadius: isWindowShot ? 12 : 0, yRadius: isWindowShot ? 12 : 0)
+                    clipPath.addClip()
+
                     NSColor.windowBackgroundColor.setFill()
                     rect.fill()
+
+                    if isWindowShot {
+                        // Synthetic macOS titlebar so test matches a genuine captured macOS window
+                        let bar = NSRect(x: 0, y: rect.height - 32, width: rect.width, height: 32)
+                        NSColor(white: 0.96, alpha: 1.0).setFill()
+                        bar.fill()
+                        NSColor.separatorColor.setFill()
+                        NSRect(x: 0, y: rect.height - 32.5, width: rect.width, height: 0.8).fill()
+                        let dots: [NSColor] = [
+                            NSColor(red: 1, green: 0.37, blue: 0.34, alpha: 1),
+                            NSColor(red: 1, green: 0.74, blue: 0.18, alpha: 1),
+                            NSColor(red: 0.16, green: 0.79, blue: 0.25, alpha: 1)
+                        ]
+                        for (idx, c) in dots.enumerated() {
+                            c.setFill()
+                            NSBezierPath(ovalIn: NSRect(x: 14 + CGFloat(idx) * 18, y: rect.height - 21, width: 10, height: 10)).fill()
+                        }
+                    }
+
                     let text = "WindowSwitcher Editor Preview" as NSString
-                    text.draw(at: NSPoint(x: 40, y: 440), withAttributes: [
-                        .font: NSFont.systemFont(ofSize: 24, weight: .bold),
+                    text.draw(at: NSPoint(x: 40, y: 432), withAttributes: [
+                        .font: NSFont.systemFont(ofSize: 22, weight: .bold),
                         .foregroundColor: NSColor.labelColor
                     ])
                     let cardRect = NSRect(x: 40, y: 120, width: 720, height: 280)
@@ -107,11 +130,34 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
                     ])
                     return true
                 }
-                ScreenshotEditorWindowController.shared.show(image: image, sourceRect: NSRect(origin: .zero, size: size))
+
+                let finalImage: NSImage
+                if isWindowShot, let baseCG = baseImg.cgImage(forProposedRect: nil, context: nil, hints: nil) {
+                    finalImage = ScreenshotCoordinator.renderAppleWindowWithDropShadow(
+                        windowImage: baseCG,
+                        windowSize: baseSize,
+                        scale: 2.0
+                    ).nsImage
+                } else {
+                    finalImage = baseImg
+                }
+
+                ScreenshotEditorWindowController.shared.show(
+                    image: finalImage,
+                    sourceRect: NSRect(origin: .zero, size: finalImage.size),
+                    hasEmbeddedShadow: isWindowShot
+                )
                 ScreenshotEditorWindowController.shared.addSampleAnnotationsForTesting(selectedIndex: selIdx)
 
                 let frameStyle: WindowFrameStyle = (frameStr == "window") ? .macOSWindow : (frameStr == "card" ? .card : .none)
-                let backdropType: BackdropType = (backdropStr == "gradient") ? .gradient : (backdropStr == "gif" ? .gif : (backdropStr == "solid" ? .solid : .none))
+                let backdropType: BackdropType
+                switch backdropStr {
+                case "gradient": backdropType = .gradient
+                case "gif": backdropType = .gif
+                case "solid": backdropType = .solid
+                case "wallpaper", "photo": backdropType = .photo
+                default: backdropType = .none
+                }
                 if frameStyle != .none || backdropType != .none || openBackdrop || openColor || expandCustomColor || addSpotlight {
                     ScreenshotEditorWindowController.shared.configureTestingVisuals(
                         frameStyle: frameStyle,

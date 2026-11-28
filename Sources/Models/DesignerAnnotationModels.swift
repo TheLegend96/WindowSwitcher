@@ -65,12 +65,24 @@ public enum WindowFrameStyle: String, CaseIterable, Identifiable {
 
 public enum BackdropType: String, CaseIterable, Identifiable {
     case none = "None"
+    case photo = "Wallpaper"
     case gradient = "Gradient"
     case solid = "Color"
-    case photo = "Photo"
     case gif = "GIF"
 
     public var id: String { rawValue }
+}
+
+public struct MacWallpaperPreset: Identifiable, Equatable {
+    public let id: String
+    public let name: String
+    public let fileURL: URL
+
+    public init(id: String, name: String, fileURL: URL) {
+        self.id = id
+        self.name = name
+        self.fileURL = fileURL
+    }
 }
 
 public enum BackdropAspectRatio: String, CaseIterable, Identifiable {
@@ -177,6 +189,7 @@ public struct BackdropConfig: Equatable {
     public var backdropType: BackdropType = .none
     public var gradientId: String = "coastal"
     public var solidColor: NSColor = NSColor(red: 0.92, green: 0.93, blue: 0.96, alpha: 1.0)
+    public var wallpaperId: String? = nil
     public var customPhoto: NSImage? = nil
     public var blurPhotoBackdrop: Bool = false
     public var gifPresetId: String = "aurora"
@@ -196,6 +209,7 @@ public struct BackdropConfig: Equatable {
         lhs.backdropType == rhs.backdropType &&
         lhs.gradientId == rhs.gradientId &&
         lhs.solidColor.hexString == rhs.solidColor.hexString &&
+        lhs.wallpaperId == rhs.wallpaperId &&
         lhs.customPhoto === rhs.customPhoto &&
         lhs.blurPhotoBackdrop == rhs.blurPhotoBackdrop &&
         lhs.gifPresetId == rhs.gifPresetId &&
