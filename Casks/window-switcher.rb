@@ -1,6 +1,6 @@
 cask "window-switcher" do
   version "1.0.0"
-  sha256 "4c3dc91a8d273048e9fecbf0db4f28cb2f172006dae30d016b31f61ba01e7bba"
+  sha256 "efb4424d9bcda12b45811f308924dc00b5787c375afb1223e17b9df5037c01ac"
 
   url "https://github.com/TheLegend96/WindowSwitcher/releases/download/v#{version}/WindowSwitcher.dmg"
   name "Window Switcher"

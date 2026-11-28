@@ -28,6 +28,7 @@ public final class ScreenshotEditorState: ObservableObject {
     @Published public var isBackdropPopoverOpen: Bool = false
     @Published public var isBackdropColorPopoverOpen: Bool = false
     @Published public var pendingCropRect: CGRect? = nil
+    @Published public var pendingOCRRect: CGRect? = nil
     @Published public var gifFrames: [ImageBackdropCompositor.AnimatedGIFFrame] = []
     @Published public var currentGifFrameIndex: Int = 0
 
@@ -103,11 +104,15 @@ public final class ScreenshotEditorState: ObservableObject {
     public var onRequestChooseBackdropPhoto: (() -> Void)?
     public var onRequestChooseBackdropGIF: (() -> Void)?
     public var onRequestGrabOCRText: (() -> Void)?
+    public var onRequestGrabOCRRegion: ((CGRect) -> Void)?
 
     public func selectTool(_ tool: AnnotationTool) {
         onCommitInlineText?()
         if tool != .crop {
             pendingCropRect = nil
+        }
+        if tool != .grabText {
+            pendingOCRRect = nil
         }
         if let idx = selectedAnnotationIndex, idx < annotations.count, annotations[idx].tool != tool {
             selectedAnnotationIndex = nil
@@ -125,6 +130,7 @@ public final class ScreenshotEditorState: ObservableObject {
         selectedAnnotationIndex = nil
         pinnedBgHexColor = nil
         pendingCropRect = nil
+        pendingOCRRect = nil
         cutoutImage = nil
         isRemovingBackground = false
         backdropConfig = BackdropConfig()
@@ -620,25 +626,64 @@ public class ScreenshotEditorWindowController: NSObject, NSWindowDelegate {
         state.onRequestGrabOCRText = { [weak self] in
             guard let self, let sourceImg = self.state.activeSubjectImage ?? self.state.image,
                   let cg = sourceImg.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return }
-            Task {
-                let request = VNRecognizeTextRequest()
-                request.recognitionLevel = .accurate
-                request.usesLanguageCorrection = true
-                let handler = VNImageRequestHandler(cgImage: cg, options: [:])
-                try? handler.perform([request])
-                let lines = (request.results ?? []).compactMap { $0.topCandidates(1).first?.string }
-                let joined = lines.joined(separator: "\n")
-                await MainActor.run {
-                    if joined.isEmpty {
-                        ToastHUDController.shared.showSimpleToast(message: "No text found in image", icon: "text.magnifyingglass")
-                    } else {
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(joined, forType: .string)
-                        ToastHUDController.shared.showSimpleToast(message: "Copied text to clipboard", icon: "text.viewfinder")
-                    }
-                }
+            Self.runOCRAndToast(on: cg, emptyMessage: "No text found in image", on: self.window?.screen)
+        }
+
+        state.onRequestGrabOCRRegion = { [weak self] regionRect in
+            guard let self, let sourceImg = self.state.activeSubjectImage ?? self.state.image else { return }
+            let cropped = Self.sliceImage(sourceImg, to: regionRect)
+            guard let cg = cropped.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return }
+            Self.runOCRAndToast(on: cg, emptyMessage: "No text found in selected area", on: self.window?.screen)
+        }
+    }
+
+    private static func runOCRAndToast(on cgImage: CGImage, emptyMessage: String, on screen: NSScreen?) {
+        TextRecognitionService.shared.recognizeAndCopyText(from: cgImage) { result in
+            if let result = result {
+                NSSound.beep()
+                ToastHUDController.shared.showOCRToast(text: result.text, on: screen)
+            } else {
+                ToastHUDController.shared.showSimpleToast(message: emptyMessage, icon: "text.magnifyingglass", on: screen)
             }
         }
+    }
+
+    private static func sliceImage(_ src: NSImage, to cropRect: CGRect) -> NSImage {
+        let pixW = max(1, Int(src.representations.first?.pixelsWide ?? Int(src.size.width * 2)))
+        let pixH = max(1, Int(src.representations.first?.pixelsHigh ?? Int(src.size.height * 2)))
+        let sx = CGFloat(pixW) / max(1, src.size.width)
+        let sy = CGFloat(pixH) / max(1, src.size.height)
+
+        let outPixW = max(2, Int(round(cropRect.width * sx)))
+        let outPixH = max(2, Int(round(cropRect.height * sy)))
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+
+        guard let ctx = CGContext(
+            data: nil,
+            width: outPixW,
+            height: outPixH,
+            bitsPerComponent: 8,
+            bytesPerRow: 0,
+            space: colorSpace,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else { return src }
+
+        let gCtx = NSGraphicsContext(cgContext: ctx, flipped: false)
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = gCtx
+
+        let destRect = NSRect(x: 0, y: 0, width: outPixW, height: outPixH)
+        let srcRect = NSRect(
+            x: cropRect.origin.x,
+            y: src.size.height - cropRect.maxY,
+            width: cropRect.width,
+            height: cropRect.height
+        )
+        src.draw(in: destRect, from: srcRect, operation: .copy, fraction: 1.0)
+        NSGraphicsContext.restoreGraphicsState()
+
+        guard let outCG = ctx.makeImage() else { return src }
+        return NSImage(cgImage: outCG, size: NSSize(width: cropRect.width, height: cropRect.height))
     }
 
     private func applyPendingCrop() {
@@ -651,47 +696,8 @@ public class ScreenshotEditorWindowController: NSObject, NSWindowDelegate {
 
         state.pushUndoSnapshot()
 
-        func sliceImage(_ src: NSImage) -> NSImage {
-            let pixW = max(1, Int(src.representations.first?.pixelsWide ?? Int(src.size.width * 2)))
-            let pixH = max(1, Int(src.representations.first?.pixelsHigh ?? Int(src.size.height * 2)))
-            let sx = CGFloat(pixW) / max(1, src.size.width)
-            let sy = CGFloat(pixH) / max(1, src.size.height)
-
-            let outPixW = max(2, Int(round(cropRect.width * sx)))
-            let outPixH = max(2, Int(round(cropRect.height * sy)))
-            let colorSpace = CGColorSpaceCreateDeviceRGB()
-
-            guard let ctx = CGContext(
-                data: nil,
-                width: outPixW,
-                height: outPixH,
-                bitsPerComponent: 8,
-                bytesPerRow: 0,
-                space: colorSpace,
-                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-            ) else { return src }
-
-            let gCtx = NSGraphicsContext(cgContext: ctx, flipped: false)
-            NSGraphicsContext.saveGraphicsState()
-            NSGraphicsContext.current = gCtx
-
-            let destRect = NSRect(x: 0, y: 0, width: outPixW, height: outPixH)
-            // Source crop coordinates are top-left relative; NSImage draws from bottom-left origin
-            let srcRect = NSRect(
-                x: cropRect.origin.x * (src.size.width / src.size.width),
-                y: src.size.height - cropRect.maxY,
-                width: cropRect.width,
-                height: cropRect.height
-            )
-            src.draw(in: destRect, from: srcRect, operation: .copy, fraction: 1.0)
-            NSGraphicsContext.restoreGraphicsState()
-
-            guard let outCG = ctx.makeImage() else { return src }
-            return NSImage(cgImage: outCG, size: NSSize(width: cropRect.width, height: cropRect.height))
-        }
-
-        let newBase = sliceImage(baseImg)
-        let newCutout = state.cutoutImage.map { sliceImage($0) }
+        let newBase = Self.sliceImage(baseImg, to: cropRect)
+        let newCutout = state.cutoutImage.map { Self.sliceImage($0, to: cropRect) }
 
         let dx = -cropRect.origin.x
         let dy = -cropRect.origin.y
@@ -754,7 +760,10 @@ public class ScreenshotEditorWindowController: NSObject, NSWindowDelegate {
         openBackdropPopover: Bool = false,
         openColorPopover: Bool = false,
         expandCustomColor: Bool = false,
-        selectSpotlight: Bool = false
+        selectSpotlight: Bool = false,
+        toolOverride: AnnotationTool? = nil,
+        ocrMarquee: CGRect? = nil,
+        testZoomScale: CGFloat? = nil
     ) {
         state.backdropConfig.frameStyle = frameStyle
         state.backdropConfig.backdropType = backdropType
@@ -785,9 +794,22 @@ public class ScreenshotEditorWindowController: NSObject, NSWindowDelegate {
             state.selectedAnnotationIndex = state.annotations.count - 1
             state.currentTool = .spotlight
         }
+        if let t = toolOverride {
+            state.selectedAnnotationIndex = nil
+            state.currentTool = t
+        }
+        if let ocrRect = ocrMarquee {
+            state.pendingOCRRect = ocrRect
+        }
         state.onBackdropChanged?()
         state.onCanvasMutated?()
-        state.onRequestZoomFit?()
+        if let z = testZoomScale {
+            state.zoomScale = z
+            state.panOffset = CGPoint(x: 40, y: -20)
+            state.onRequestZoomBy?(1.0)
+        } else {
+            state.onRequestZoomFit?()
+        }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
             self?.state.isBackdropPopoverOpen = openBackdropPopover
             self?.state.isColorPopoverOpen = openColorPopover
@@ -911,6 +933,7 @@ public class ScreenshotEditorWindowController: NSObject, NSWindowDelegate {
             if !isCmd && !hasOtherMods && !isShift {
                 switch event.keyCode {
                 case 9:  self.state.selectTool(.pointer); return nil      // V
+                case 4:  self.state.selectTool(.pan); return nil          // H
                 case 40: self.state.selectTool(.crop); return nil         // K
                 case 2:  self.state.selectTool(.distance); return nil     // D
                 case 0:  self.state.selectTool(.arrow); return nil        // A
@@ -927,6 +950,7 @@ public class ScreenshotEditorWindowController: NSObject, NSWindowDelegate {
                 case 35: self.state.selectTool(.pencil); return nil       // P
                 case 11: self.state.selectTool(.blur); return nil         // B
                 case 1:  self.state.selectTool(.spotlight); return nil    // S
+                case 5:  self.state.selectTool(.grabText); return nil     // G
                 default: break
                 }
             }
@@ -1084,14 +1108,14 @@ public struct ScreenshotEditorRootView: View {
 
                 Menu {
                     Button {
+                        state.selectTool(.grabText)
+                    } label: {
+                        Label("Grab Text Area (G)", systemImage: state.currentTool == .grabText ? "checkmark" : "text.viewfinder")
+                    }
+                    Button {
                         state.selectTool(.distance)
                     } label: {
                         Label("Measure Spacing (D)", systemImage: state.currentTool == .distance ? "checkmark" : "ruler")
-                    }
-                    Button {
-                        state.onRequestGrabOCRText?()
-                    } label: {
-                        Label("Grab Text from Image", systemImage: "text.viewfinder")
                     }
                     if isGIFFrameExport {
                         Divider()
@@ -1104,11 +1128,15 @@ public struct ScreenshotEditorRootView: View {
                 } label: {
                     Image(systemName: "ellipsis")
                         .font(.system(size: 13, weight: .medium))
-                        .foregroundColor(state.currentTool == .distance ? Color(red: 10/255, green: 132/255, blue: 255/255) : .primary.opacity(0.72))
+                        .foregroundColor(
+                            (state.currentTool == .distance || state.currentTool == .grabText)
+                                ? Color(red: 10/255, green: 132/255, blue: 255/255)
+                                : .primary.opacity(0.72)
+                        )
                         .frame(width: 26, height: 26)
                         .background(
                             RoundedRectangle(cornerRadius: 7, style: .continuous)
-                                .fill(state.currentTool == .distance ? Color(nsColor: .controlBackgroundColor) : Color.clear)
+                                .fill((state.currentTool == .distance || state.currentTool == .grabText) ? Color(nsColor: .controlBackgroundColor) : Color.clear)
                         )
                 }
                 .menuStyle(.borderlessButton)
@@ -1170,31 +1198,54 @@ public struct ScreenshotEditorRootView: View {
                     BackdropStudioPopover(state: state)
                 }
 
-                Menu {
-                    Button("Zoom to Fit (⌘0)") { state.onRequestZoomFit?() }
-                    Button("Actual Size 100% (⌘1)") { state.onRequestZoomActual?() }
-                    Divider()
-                    Button("Zoom In 25% (⌘+)") { state.onRequestZoomBy?(1.25) }
-                    Button("Zoom Out 25% (⌘-)") { state.onRequestZoomBy?(0.80) }
-                } label: {
-                    Text(verbatim: "\(Int(round(state.effectiveDisplayScale * 100)))%")
-                        .font(.system(size: 11, weight: .semibold, design: .rounded))
-                        .monospacedDigit()
-                        .foregroundColor(.primary)
+                HStack(spacing: 4) {
+                    if abs(state.zoomScale - 1.0) > 0.04 || hypot(state.panOffset.x, state.panOffset.y) > 8 {
+                        Button(action: { state.onRequestZoomFit?() }) {
+                            Image(systemName: "arrow.counterclockwise")
+                                .font(.system(size: 10.5, weight: .semibold))
+                                .foregroundColor(.secondary)
+                                .frame(width: 24, height: 28)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                        .fill(Color.primary.opacity(0.05))
+                                )
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                        .stroke(Color.primary.opacity(0.08), lineWidth: 0.5)
+                                )
+                        }
+                        .buttonStyle(.plain)
+                        .help("Reset zoom & recenter canvas (⌘0)")
+                    }
+
+                    Menu {
+                        Button("Zoom to Fit (⌘0)") { state.onRequestZoomFit?() }
+                        Button("Actual Size 100% (⌘1)") { state.onRequestZoomActual?() }
+                        Divider()
+                        Button("Zoom In 25% (⌘+)") { state.onRequestZoomBy?(1.25) }
+                        Button("Zoom Out 25% (⌘-)") { state.onRequestZoomBy?(0.80) }
+                        Divider()
+                        Button("Hand / Pan Tool (H)") { state.selectTool(.pan) }
+                    } label: {
+                        Text(verbatim: "\(Int(round(state.effectiveDisplayScale * 100)))%")
+                            .font(.system(size: 11, weight: .semibold, design: .rounded))
+                            .monospacedDigit()
+                            .foregroundColor(.primary)
+                    }
+                    .menuStyle(.borderlessButton)
+                    .fixedSize()
+                    .padding(.horizontal, 8)
+                    .frame(height: 28)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .fill(Color.primary.opacity(0.05))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .stroke(Color.primary.opacity(0.08), lineWidth: 0.5)
+                    )
+                    .help("Two-finger swipe to pan • Pinch or ⌘+Scroll to zoom")
                 }
-                .menuStyle(.borderlessButton)
-                .fixedSize()
-                .padding(.horizontal, 8)
-                .frame(height: 28)
-                .background(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(Color.primary.opacity(0.05))
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .stroke(Color.primary.opacity(0.08), lineWidth: 0.5)
-                )
-                .help("Scroll or pinch to zoom under cursor (⌘+ / ⌘- / ⌘0)")
             }
             .fixedSize(horizontal: true, vertical: false)
             .padding(.trailing, 14)
@@ -1758,12 +1809,13 @@ public class ScreenshotEditorCanvasNSView: NSView {
             NSCursor.closedHand.set()
             return
         }
-        if state.isSpacePanning || isHoveringDragGrip {
+        if state.isSpacePanning || state.currentTool == .pan || isHoveringDragGrip {
             NSCursor.openHand.set()
             return
         }
         switch state.currentTool {
         case .pointer:     NSCursor.arrow.set()
+        case .pan:         NSCursor.openHand.set()
         case .text:        NSCursor.iBeam.set()
         case .numberedPin: NSCursor.pointingHand.set()
         default:           NSCursor.crosshair.set()
@@ -1895,16 +1947,39 @@ public class ScreenshotEditorCanvasNSView: NSView {
         needsDisplay = true
     }
 
+    private func clampPanOffset() {
+        let layout = compositeLayout()
+        let scale = effectiveScale()
+        let scaledW = layout.canvasSize.width * scale
+        let scaledH = layout.canvasSize.height * scale
+        let maxX = max(140, scaledW * 0.60 + bounds.width * 0.25)
+        let maxY = max(120, scaledH * 0.60 + bounds.height * 0.25)
+        state.panOffset.x = max(-maxX, min(maxX, state.panOffset.x))
+        state.panOffset.y = max(-maxY, min(maxY, state.panOffset.y))
+    }
+
     override public func scrollWheel(with event: NSEvent) {
         let loc = convert(event.locationInWindow, from: nil)
-        if abs(event.scrollingDeltaY) > 0.05 {
-            let sensitivity: CGFloat = event.hasPreciseScrollingDeltas ? 0.012 : 0.08
-            let factor = exp(event.scrollingDeltaY * sensitivity)
-            applyZoom(factor: factor, anchoredAtViewPoint: loc)
+        let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+
+        // Figma-standard navigation: ⌘+Scroll or ⌃+Scroll zooms toward cursor; two-finger swipe pans freely in 2D!
+        if mods.contains(.command) || mods.contains(.control) {
+            if abs(event.scrollingDeltaY) > 0.05 {
+                let sensitivity: CGFloat = event.hasPreciseScrollingDeltas ? 0.010 : 0.08
+                let factor = exp(event.scrollingDeltaY * sensitivity)
+                applyZoom(factor: factor, anchoredAtViewPoint: loc)
+            }
             return
         }
-        if abs(event.scrollingDeltaX) > 0.05 && state.zoomScale > 1.05 {
-            state.panOffset.x += event.scrollingDeltaX
+
+        let mul: CGFloat = event.hasPreciseScrollingDeltas ? 1.0 : 12.0
+        let dx = event.scrollingDeltaX * mul
+        let dy = event.scrollingDeltaY * mul
+        if abs(dx) > 0.05 || abs(dy) > 0.05 {
+            state.panOffset.x += dx
+            state.panOffset.y -= dy
+            clampPanOffset()
+            syncInlineEditorScaleAndPosition()
             needsDisplay = true
         }
     }
@@ -2001,7 +2076,7 @@ public class ScreenshotEditorCanvasNSView: NSView {
         pendingClickDownViewPoint = nil
         didExceedDragThreshold = false
 
-        if state.isSpacePanning {
+        if state.isSpacePanning || state.currentTool == .pan {
             isPanningCanvas = true
             lastPanViewPoint = viewLoc
             NSCursor.closedHand.set()
@@ -2173,6 +2248,15 @@ public class ScreenshotEditorCanvasNSView: NSView {
         case .crop:
             dragStartImagePoint = imgPt
             state.pendingCropRect = CGRect(origin: imgPt, size: .zero)
+
+        case .grabText:
+            dragStartImagePoint = imgPt
+            state.pendingOCRRect = CGRect(origin: imgPt, size: .zero)
+
+        case .pan:
+            isPanningCanvas = true
+            lastPanViewPoint = viewLoc
+            NSCursor.closedHand.set()
         }
 
         needsDisplay = true
@@ -2184,7 +2268,9 @@ public class ScreenshotEditorCanvasNSView: NSView {
         if isPanningCanvas, let last = lastPanViewPoint {
             state.panOffset.x += (viewLoc.x - last.x)
             state.panOffset.y += (viewLoc.y - last.y)
+            clampPanOffset()
             lastPanViewPoint = viewLoc
+            syncInlineEditorScaleAndPosition()
             needsDisplay = true
             return
         }
@@ -2223,6 +2309,17 @@ public class ScreenshotEditorCanvasNSView: NSView {
 
         if state.currentTool == .crop, let start = dragStartImagePoint {
             state.pendingCropRect = CGRect(
+                x: min(start.x, currentImgPt.x),
+                y: min(start.y, currentImgPt.y),
+                width: abs(currentImgPt.x - start.x),
+                height: abs(currentImgPt.y - start.y)
+            )
+            needsDisplay = true
+            return
+        }
+
+        if state.currentTool == .grabText, let start = dragStartImagePoint {
+            state.pendingOCRRect = CGRect(
                 x: min(start.x, currentImgPt.x),
                 y: min(start.y, currentImgPt.y),
                 width: abs(currentImgPt.x - start.x),
@@ -2292,6 +2389,17 @@ public class ScreenshotEditorCanvasNSView: NSView {
             }
             dragStartImagePoint = nil
             needsDisplay = true
+            return
+        }
+
+        if state.currentTool == .grabText {
+            let chosen = state.pendingOCRRect
+            state.pendingOCRRect = nil
+            dragStartImagePoint = nil
+            needsDisplay = true
+            if let r = chosen, r.width >= 10, r.height >= 10 {
+                state.onRequestGrabOCRRegion?(r)
+            }
             return
         }
 
@@ -2683,7 +2791,7 @@ public class ScreenshotEditorCanvasNSView: NSView {
             return r.contains(pt)
         case .pencil:
             return ann.pathPoints.contains { hypot(pt.x - $0.x, pt.y - $0.y) <= threshold }
-        case .pointer, .crop:
+        case .pointer, .pan, .crop, .grabText:
             return false
         }
     }
@@ -2803,7 +2911,35 @@ public class ScreenshotEditorCanvasNSView: NSView {
 
         if state.currentTool == .crop, let crop = state.pendingCropRect, crop.width >= 4, crop.height >= 4 {
             drawCropOverlay(cropImgRect: crop, imgRect: imgRect, in: ctx)
+        } else if state.currentTool == .grabText, let ocr = state.pendingOCRRect, ocr.width >= 4, ocr.height >= 4 {
+            drawGrabTextOverlay(ocrImgRect: ocr, imgRect: imgRect, in: ctx)
         }
+    }
+
+    private func drawGrabTextOverlay(ocrImgRect: CGRect, imgRect: NSRect, in ctx: CGContext) {
+        let vTL = imagePointToViewPoint(ocrImgRect.origin)
+        let vBR = imagePointToViewPoint(CGPoint(x: ocrImgRect.maxX, y: ocrImgRect.maxY))
+        let ocrR = AnnotationRenderer.normalizedRect(from: vTL, to: vBR)
+        let accent = NSColor(red: 10/255, green: 132/255, blue: 255/255, alpha: 1.0)
+
+        ctx.saveGState()
+        ctx.clip(to: imgRect)
+
+        let dimPath = CGMutablePath()
+        dimPath.addRect(imgRect)
+        dimPath.addRect(ocrR)
+        ctx.addPath(dimPath)
+        ctx.setFillColor(NSColor.black.withAlphaComponent(0.30).cgColor)
+        ctx.fillPath(using: .evenOdd)
+
+        accent.withAlphaComponent(0.10).setFill()
+        NSBezierPath(roundedRect: ocrR, xRadius: 4, yRadius: 4).fill()
+
+        accent.withAlphaComponent(0.95).setStroke()
+        let border = NSBezierPath(roundedRect: ocrR, xRadius: 4, yRadius: 4)
+        border.lineWidth = 1.5
+        border.stroke()
+        ctx.restoreGState()
     }
 
     private func drawCropOverlay(cropImgRect: CGRect, imgRect: NSRect, in ctx: CGContext) {
@@ -3020,7 +3156,7 @@ public class ScreenshotEditorCanvasNSView: NSView {
             let maxY = pts.map(\.y).max() ?? 0
             rawPt = NSPoint(x: (minX + maxX) * 0.5, y: maxY + 13)
 
-        case .pointer, .crop:
+        case .pointer, .pan, .crop, .grabText:
             rawPt = .zero
         }
 

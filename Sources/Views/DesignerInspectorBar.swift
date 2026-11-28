@@ -962,8 +962,12 @@ public struct DesignerInspectorBar: View {
         if let tool = activeInspectorTool {
             HStack(spacing: 10) {
                 switch tool {
+                case .pan:
+                    panControls
                 case .crop:
                     cropControls
+                case .grabText:
+                    grabTextControls
                 case .arrow:
                     arrowControls
                 case .text:
@@ -1295,6 +1299,66 @@ public struct DesignerInspectorBar: View {
                 onBeginEdit: { state.beginPropertyEditUndoIfNeeded() },
                 onValueChanged: { state.applyStrokeWidth($0, for: .pencil) }
             )
+        }
+    }
+
+    private var panControls: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "hand.raised")
+                .font(.system(size: 12))
+                .foregroundColor(.secondary)
+
+            Text("Drag canvas or swipe with two fingers • ⌘+Scroll or Pinch to zoom")
+                .font(.system(size: 11.5, weight: .medium))
+                .foregroundColor(.secondary)
+
+            if abs(state.zoomScale - 1.0) > 0.04 || hypot(state.panOffset.x, state.panOffset.y) > 8 {
+                Divider().frame(height: 14)
+
+                Button(action: { state.onRequestZoomFit?() }) {
+                    Text("Reset View")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundColor(.primary)
+                        .padding(.horizontal, 9)
+                        .frame(height: 22)
+                        .background(Capsule().fill(Color.primary.opacity(0.08)))
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    private var grabTextControls: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "text.viewfinder")
+                .font(.system(size: 12))
+                .foregroundColor(Color(red: 10/255, green: 132/255, blue: 255/255))
+
+            Text("Drag over any region to copy text")
+                .font(.system(size: 11.5, weight: .medium))
+                .foregroundColor(.secondary)
+
+            Divider().frame(height: 14)
+
+            Button(action: { state.onRequestGrabOCRText?() }) {
+                Text("Grab All")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 10)
+                    .frame(height: 23)
+                    .background(Capsule().fill(Color(red: 10/255, green: 132/255, blue: 255/255)))
+            }
+            .buttonStyle(.plain)
+
+            Button(action: { state.selectTool(.pointer) }) {
+                Text("Done")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(.secondary)
+                    .padding(.horizontal, 8)
+                    .frame(height: 23)
+                    .background(Capsule().fill(Color.primary.opacity(0.06)))
+            }
+            .buttonStyle(.plain)
         }
     }
 

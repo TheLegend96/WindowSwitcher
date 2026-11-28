@@ -158,7 +158,12 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
                 case "wallpaper", "photo": backdropType = .photo
                 default: backdropType = .none
                 }
-                if frameStyle != .none || backdropType != .none || openBackdrop || openColor || expandCustomColor || addSpotlight {
+                let toolStr = notif.userInfo?["tool"] as? String ?? ""
+                let toolOverride: AnnotationTool? = (toolStr == "pan") ? .pan : (toolStr == "grabText" ? .grabText : nil)
+                let zoomVal = (notif.userInfo?["zoom"] as? String).flatMap { Double($0) }.map { CGFloat($0) }
+                let ocrMarquee: CGRect? = (toolOverride == .grabText) ? CGRect(x: 36, y: 28, width: 390, height: 64) : nil
+
+                if frameStyle != .none || backdropType != .none || openBackdrop || openColor || expandCustomColor || addSpotlight || toolOverride != nil || zoomVal != nil {
                     ScreenshotEditorWindowController.shared.configureTestingVisuals(
                         frameStyle: frameStyle,
                         backdropType: backdropType,
@@ -167,7 +172,10 @@ public class AppDelegate: NSObject, NSApplicationDelegate {
                         openBackdropPopover: openBackdrop,
                         openColorPopover: openColor,
                         expandCustomColor: expandCustomColor,
-                        selectSpotlight: addSpotlight
+                        selectSpotlight: addSpotlight,
+                        toolOverride: toolOverride,
+                        ocrMarquee: ocrMarquee,
+                        testZoomScale: zoomVal
                     )
                 }
 

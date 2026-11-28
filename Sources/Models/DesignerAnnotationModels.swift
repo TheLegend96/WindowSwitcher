@@ -5,6 +5,7 @@ import CoreImage
 // MARK: - Annotation Tool Types
 public enum AnnotationTool: String, CaseIterable, Identifiable {
     case pointer = "Pointer"
+    case pan = "Hand"
     case crop = "Crop"
     case arrow = "Arrow"
     case text = "Text"
@@ -14,17 +15,19 @@ public enum AnnotationTool: String, CaseIterable, Identifiable {
     case blur = "Blur"
     case spotlight = "Spotlight"
     case distance = "Dimension"
+    case grabText = "Grab Text"
 
     public var id: String { rawValue }
 
     /// Everyday approachable tools shown in the primary center toolbar.
     public static var primaryToolbarTools: [AnnotationTool] {
-        [.pointer, .crop, .arrow, .text, .numberedPin, .pencil, .rectangle, .blur, .spotlight]
+        [.pointer, .pan, .crop, .arrow, .text, .numberedPin, .pencil, .rectangle, .blur, .spotlight]
     }
 
     public var icon: String {
         switch self {
         case .pointer: return "cursorarrow"
+        case .pan: return "hand.raised"
         case .crop: return "crop"
         case .arrow: return "arrow.up.right"
         case .text: return "textformat"
@@ -34,12 +37,14 @@ public enum AnnotationTool: String, CaseIterable, Identifiable {
         case .blur: return "checkerboard.rectangle"
         case .spotlight: return "scope"
         case .distance: return "ruler"
+        case .grabText: return "text.viewfinder"
         }
     }
 
     public var tooltip: String {
         switch self {
         case .pointer: return "Select & Move (V)"
+        case .pan: return "Pan Canvas (H / Space)"
         case .crop: return "Crop Image (K)"
         case .arrow: return "Arrow Callout (A)"
         case .text: return "Text Note (T)"
@@ -49,6 +54,7 @@ public enum AnnotationTool: String, CaseIterable, Identifiable {
         case .blur: return "Hide / Blur Info (B)"
         case .spotlight: return "Spotlight Highlight (S)"
         case .distance: return "Measure Spacing (D)"
+        case .grabText: return "Grab Text Area (G)"
         }
     }
 }
@@ -622,7 +628,7 @@ public enum AnnotationRenderer {
                 path.fill()
             }
 
-        case .pointer, .crop, .spotlight:
+        case .pointer, .pan, .crop, .grabText, .spotlight:
             break
         }
     }
